@@ -1,5 +1,9 @@
 # PHP Release Process
 
+> **Upstream document, carried for reference.** This describes how the PHP
+> project releases PHP, not how this fork cuts a backport release. See
+> [../BACKPORTING.md](../BACKPORTING.md).
+
 A release manager's role includes making packaged source code from the canonical
 repository available according to the release schedule.
 

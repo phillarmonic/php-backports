@@ -1,5 +1,8 @@
 # Mailing list rules
 
+> **Upstream document, carried for reference.** These are the PHP project's
+> mailing list rules. This fork has no mailing list.
+
 This is the first file you should be reading before doing any posts on PHP
 mailing lists. Following these rules is considered imperative to the success of
 the PHP project. Therefore, expect your contributions to be of much less positive

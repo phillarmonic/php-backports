@@ -1,0 +1,61 @@
+name: Backport request
+description: Ask for an already-published security fix to be ported to an end-of-life branch
+title: "Backport: CVE-YYYY-NNNNN to php-X.Y"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form only for vulnerabilities that are **already public**.
+        Do not include embargoed details. Newly discovered vulnerabilities go
+        to the PHP project, as described in
+        [SECURITY.md](https://github.com/phillarmonic/php-backports/blob/default/SECURITY.md).
+  - type: input
+    id: advisory
+    attributes:
+      label: CVE or advisory
+      description: CVE id, GHSA id, or a link to the published advisory.
+      placeholder: CVE-2024-12345
+    validations:
+      required: true
+  - type: dropdown
+    id: branches
+    attributes:
+      label: Branch
+      description: Which backport branches need this fix?
+      multiple: true
+      options:
+        - php-5.6
+        - php-7.0
+        - php-7.1
+        - php-7.2
+        - php-7.3
+        - php-7.4
+        - php-8.0
+        - php-8.1
+    validations:
+      required: true
+  - type: input
+    id: upstream
+    attributes:
+      label: Upstream fix
+      description: Commit, pull request, or patch URL that fixes this upstream.
+      placeholder: https://github.com/php/php-src/commit/...
+    validations:
+      required: true
+  - type: textarea
+    id: reachability
+    attributes:
+      label: How the vulnerable code is reached
+      description: Which function or extension, and what input triggers it. Skip this if the advisory already spells it out.
+  - type: textarea
+    id: testing
+    attributes:
+      label: Testing offer
+      description: Can you test a build? On which platform and with which extensions?
+  - type: checkboxes
+    id: public
+    attributes:
+      label: Confirmation
+      options:
+        - label: The advisory and the upstream fix are public.
+          required: true

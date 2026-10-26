@@ -1,5 +1,14 @@
 # Contributing to PHP
 
+> **This document is upstream PHP's.** It describes how to contribute to
+> `php/php-src`: RFCs, feature requests, bug reports, and pull requests against
+> `master`. That process does not apply to this fork. Here, only public
+> security fixes are backported to end-of-life branches. Read
+> [BACKPORTING.md](BACKPORTING.md) and [SECURITY.md](SECURITY.md) instead, and
+> keep this file as a reference for PHP's C style and commit conventions. The
+> build and test commands below still apply; the drun tasks in `.drun/spec.drun`
+> wrap them, and [AGENTS.md](AGENTS.md) lists those.
+
 Anybody who programs in PHP can be a contributing member of the community that
 develops and deploys it; the task of deploying PHP, documentation and associated
 websites is a never-ending one. With every release or release candidate comes a

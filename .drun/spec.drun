@@ -1,0 +1,173 @@
+# drun (do-run) CLI is a fast, semantic task runner with
+# its own powerful automation language. Effortless tasks, serious speed.
+# Learn more at https://github.com/phillarmonic/drun
+#
+# Routine work for the php-backports tree. The build tasks assume a Unix host
+# and the tree of whichever branch is checked out: 5.6 and the early 7.x
+# series use configure.in, 7.2 and later use configure.ac, and ./buildconf
+# handles both.
+#
+# The default configure keeps the build small and reproducible. Pass flags
+# to build the extensions a backport touches, for example:
+#   xdrun configure flags="--disable-all --enable-cli --enable-phar"
+
+version: 2.0
+
+project "php-backports" version "1.0":
+
+task "default" means "Show available project automation":
+	info "PHP security backports: 5.6, 7.0 through 7.4, 8.0, 8.1"
+	info "Available tasks: {available tasks(', ')}"
+
+task "doctor" means "Report the toolchain a build will use":
+	step "Checking build tools"
+	run ".drun/scripts/doctor.sh"
+
+task "buildconf" means "Regenerate the configure script":
+	requires tools:
+		autoconf
+	step "Running buildconf --force"
+	run "./buildconf --force"
+	success "configure is up to date"
+
+task "configure" means "Configure a build (flags=\"...\" replaces the default flags)":
+	given $flags defaults to "--disable-all --enable-cli"
+	requires tools:
+		bison
+		re2c
+		pkg-config
+	if file "configure" not exists:
+		call task "buildconf"
+	step "Configuring with: {$flags}"
+	run "./configure {$flags}"
+	success "Makefile generated"
+
+task "configure-debug" means "Configure a debug build for memory-safety work":
+	call task "configure" with flags="--disable-all --enable-cli --enable-debug"
+
+task "build" means "Compile the tree (jobs=N caps parallelism)":
+	given $jobs defaults to ""
+	requires tools:
+		make
+	if file "Makefile" not exists:
+		step "No Makefile yet; configuring first"
+		call task "configure"
+	step "Compiling"
+	if $jobs is empty:
+		run "make -j$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
+	else:
+		run "make -j{$jobs}"
+	success "Build finished: sapi/cli/php"
+
+task "test" means "Run the test suite (filter=..., jobs=N)":
+	given $filter defaults to ""
+	given $jobs defaults to ""
+	requires tools:
+		make
+	if file "Makefile" not exists:
+		fail "No configured build. Run 'xdrun build' first."
+	if $filter is empty:
+		step "Running the full test suite"
+	else:
+		step "Running tests: {$filter}"
+	if $jobs is empty:
+		run "NO_INTERACTION=1 make test TESTS={$filter}"
+	else:
+		step "Using {$jobs} test workers"
+		run "NO_INTERACTION=1 make test TESTS={$filter} TEST_PHP_ARGS=-j{$jobs}"
+	success "Tests passed"
+
+task "test-ext" means "Run one extension's tests (ext=phar, jobs=N)":
+	requires $ext
+	given $jobs defaults to ""
+	if folder "ext/{$ext}" not exists:
+		fail "No such extension: ext/{$ext}"
+	set $target to "ext/{$ext}"
+	set $workers to "{$jobs}"
+	call task "test" with filter="{$target}" jobs="{$workers}"
+
+task "test-lang" means "Run the language test suite (jobs=N)":
+	given $jobs defaults to ""
+	set $workers to "{$jobs}"
+	call task "test" with filter="tests/lang" jobs="{$workers}"
+
+task "valgrind" means "Run a test target under Valgrind (target=ext/phar)":
+	requires $target
+	requires tools:
+		valgrind
+	if file "Makefile" not exists:
+		fail "No configured build. Run 'xdrun build' first."
+	step "Running {$target} under Valgrind"
+	run "NO_INTERACTION=1 make test TESTS={$target} TEST_PHP_ARGS=-m"
+
+task "valgrind-repro" means "Run one script under Valgrind with the Zend allocator off (script=repro.php)":
+	requires $script
+	requires tools:
+		valgrind
+	if file "{$script}" not exists:
+		fail "No such script: {$script}"
+	if file "sapi/cli/php" not exists:
+		fail "No built CLI at sapi/cli/php. Run 'xdrun build' first."
+	step "Running {$script} under Valgrind"
+	run "USE_ZEND_ALLOC=0 valgrind --quiet --leak-check=no sapi/cli/php -n {$script}"
+
+task "lint" means "Syntax-check changed PHP files with this branch's CLI":
+	step "Checking PHP syntax"
+	run ".drun/scripts/lint-changed.sh"
+
+task "verify-commits" means "Check commit messages against AGENTS.md (range=HEAD)":
+	given $range defaults to "HEAD"
+	step "Checking commit messages in {$range}"
+	run ".drun/scripts/verify-commits.sh {$range}"
+
+task "verify-identity" means "Check that the built CLI carries the Phillarmonic identity line":
+	if file "sapi/cli/php" not exists:
+		fail "No built CLI at sapi/cli/php. Run 'xdrun build' first."
+	step "Checking php -v"
+	run "sapi/cli/php -v | grep -F 'Phillarmonic Software' | grep -F 'not an official PHP release'"
+
+task "changelog" means "Promote CHANGELOG.md to a release version (version=7.4.34)":
+	requires $version as string matching semver_optional_v
+	# Only after the upstream advisory is public. See BACKPORTING.md, step 6.
+	confirm "Promote CHANGELOG.md to {$version}?" defaults to "no"
+	promote changelog "CHANGELOG.md" to version "{$version}"
+	success "CHANGELOG.md now has a {$version} section"
+
+task "clean" means "Remove compiled objects, keeping configure and Makefile":
+	if file "Makefile" not exists:
+		warning "Nothing to clean: the tree is not configured."
+	else:
+		step "Running make clean"
+		run "make clean"
+
+task "distclean" means "Remove the configured build, keeping the generated configure":
+	if file "Makefile" not exists:
+		warning "Nothing to distclean: the tree is not configured."
+	else:
+		step "Running make distclean"
+		run "make distclean"
+
+task "rebuild" means "Distclean, regenerate configure, and compile from scratch":
+	call task "distclean"
+	call task "buildconf"
+	call task "build"
+
+task "ci-quick" mode "ci" means "Fast loop: commit messages, syntax, language tests":
+	step "Commit messages"
+	call task "verify-commits"
+	step "PHP syntax"
+	call task "lint"
+	step "Language tests"
+	call task "test-lang"
+	success "Fast checks passed"
+
+task "ci" mode "ci" means "Build and run the full test suite":
+	step "Commit messages"
+	call task "verify-commits"
+	step "Configure and compile"
+	call task "build"
+	step "PHP syntax"
+	call task "lint"
+	step "Full test suite"
+	call task "test" with jobs="4"
+	success "CI passed"

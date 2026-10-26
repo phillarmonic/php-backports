@@ -1,5 +1,11 @@
 # php-src docs
 
+> **Upstream document, carried for reference.** This is the PHP project's
+> internals documentation and build guide, not documentation of this fork. The
+> published version is at [php.github.io/php-src/](https://php.github.io/php-src/).
+> For this repository, start with [../README.md](../README.md) and
+> [../BACKPORTING.md](../BACKPORTING.md).
+
 This is the home of the php-src internal documentation, hosted at
 [php.github.io/php-src/](https://php.github.io/php-src/). It is in very early
 stages, but is intended to become the primary place where new information about

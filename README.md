@@ -1,176 +1,271 @@
-<div align="center">
-    <a href="https://www.php.net">
-        <img
-            alt="PHP"
-            src="https://www.php.net/images/logos/new-php-logo.svg"
-            width="150">
-    </a>
-</div>
+# PHP security backports
 
-# The PHP Interpreter
+**Porting fixes of PHP for machines that refuse to die.**
 
-PHP is a popular general-purpose scripting language that is especially suited to
-web development. Fast, flexible and pragmatic, PHP powers everything from your
-blog to the most popular websites in the world.
+This is a fork of [php-src](https://github.com/php/php-src). It takes security
+fixes that PHP applies to versions it still supports and ports them to versions
+it does not. A box running PHP 5.6 or 7.4 should not stay exposed to a published
+remote code execution bug just because nobody can schedule the migration.
 
-PHP is distributed under the [Modified BSD License](LICENSE)
-(SPDX-License-Identifier: `BSD-3-Clause`).
+> **This is not the PHP project.** The repository is maintained by
+> [Phillarmonic Software](https://www.phillarmonic.com/). It is not affiliated
+> with, endorsed by, or supported by the PHP Group, the PHP project, or the PHP
+> Foundation. "PHP" here identifies the code base. Every build from these
+> branches reports itself as a Phillarmonic backport, and none of them are
+> official PHP releases.
 
-[![Test](https://github.com/php/php-src/actions/workflows/test.yml/badge.svg)](https://github.com/php/php-src/actions/workflows/test.yml)
-[![Fuzzing Status](https://oss-fuzz-build-logs.storage.googleapis.com/badges/php.svg)](https://issues.oss-fuzz.com/issues?q=project:php)
+**Status:** the backport branches are being cut. Nothing has been released yet.
+The first tags will appear on the releases page.
 
-## Documentation
+## What we backport
 
-The PHP manual is available at [php.net/docs](https://www.php.net/docs).
+We port fixes for serious vulnerabilities into the last release of each
+end-of-life series:
 
-## Installation
+- memory corruption reachable from untrusted input: use after free, out of
+  bounds read or write, double free, and the buffer or integer overflows that
+  lead to them;
+- remote code execution, authentication bypass, and sandbox escapes where the
+  fix is small;
+- parsing bugs in bundled extensions that turn a request into memory
+  corruption, in the `unserialize()`, XML, image, and archive handlers.
 
-### Prebuilt packages and binaries
+The backport has to stay small. We want the checks that stop the bug, not the
+refactor that came with them. Where a fix depends on an API the older branch
+does not have, we write the smallest version of it that works and add a
+regression test.
 
-Prebuilt packages and binaries can be used to get up and running fast with PHP.
+We do not backport features, RFCs, deprecations, performance work, dependency
+bumps, or ordinary bug fixes. Matching current PHP is not a goal. Keeping an old
+install out of the advisory list is.
 
-For Windows, the PHP binaries can be obtained from
-[windows.php.net](https://windows.php.net). After extracting the archive the
-`*.exe` files are ready to use.
+## Coverage
 
-For other systems, see the [installation chapter](https://www.php.net/install).
+| Series | Last upstream release | Backport branch |
+| --- | --- | --- |
+| PHP 5.6 | 5.6.40 | `backports/php-5.6` |
+| PHP 7.0 | 7.0.33 | `backports/php-7.0` |
+| PHP 7.1 | 7.1.33 | `backports/php-7.1` |
+| PHP 7.2 | 7.2.34 | `backports/php-7.2` |
+| PHP 7.3 | 7.3.33 | `backports/php-7.3` |
+| PHP 7.4 | 7.4.33 | `backports/php-7.4` |
+| PHP 8.0 | 8.0.30 | `backports/php-8.0` |
+| PHP 8.1 | 8.1.34 | `backports/php-8.1` |
 
-### Building PHP source code
+Patch levels continue where upstream stopped. The first build of the 7.4 branch
+is 7.4.34, the next is 7.4.35, and so on. The version stays numeric: no suffix is
+appended to `PHP_VERSION`, so `version_compare()`, Composer platform checks, and
+extension version constraints keep behaving as they did.
 
-*For Windows, see [Build your own PHP on Windows](https://wiki.php.net/internals/windows/stepbystepbuild_sdk_2).*
+## How a build identifies itself
 
-For a minimal PHP build from Git, you will need autoconf, bison, and re2c. For
-a default build, you will additionally need libxml2 and libsqlite3.
+A backport must be recognizable at a glance, because a support engineer needs to
+know within seconds whether a binary is an official PHP build or ours. Every
+branch carries a small identity patch, so a plain build shows:
 
-On Ubuntu, you can install these using:
+```text
+$ php -v
+PHP 7.4.34 (cli) (built: Oct 26 2026 14:02:11) (NTS)
+Copyright © The PHP Group and Contributors
+Built by Phillarmonic Software (https://www.phillarmonic.com/) - security backport, not an official PHP release
+Zend Engine v3.4.0, Copyright (c) Zend Technologies
+```
+
+The copyright line stays as upstream wrote it, because the code is still theirs.
+The line after it is ours. It lives in the build, not in the version number, so
+nothing that compares versions sees a difference. It also appears in
+`phpinfo()`, and branches that already define `PHP_BUILD_PROVIDER` expose it as
+a constant.
+
+## Sponsoring this work
+
+This is unfunded maintenance. Every backport is read, adapted, built, and tested
+by hand, and the old branches need more care than current ones because their
+toolchains and test suites have moved on.
+
+If a backport keeps a system you depend on alive, sponsor the work:
+
+> **Donations:** GitHub Sponsors is being set up. The link will appear here once
+> the profile is live. Until then there is no official donation channel, and
+> anyone asking for money on our behalf is not us.
+
+Sponsorship is a donation. It does not buy a private fix, a guaranteed timeline,
+or a say in which vulnerabilities are ported first. Contractual work is
+separate: see [paid consultancy](#paid-consultancy).
+
+## Branches
+
+| Branch | Purpose |
+| --- | --- |
+| `default` | Working branch for this fork: documentation, policy, tooling. It is the repository default, so a fresh clone lands here. |
+| `master` | Untouched mirror of `php/php-src` master. Kept clean so the fork stays comparable to upstream and can be fetched without rebasing. Never commit to it. |
+| `backports/php-5.6` ... `backports/php-8.1` | The patched trees. Each starts at the final upstream release tag and receives security backports only. |
+| `PHP-5.6`, `PHP-7.4`, ... | Upstream refs carried by the mirror. We do not commit to them and do not publish from them. |
+
+Each release is a tag on its `backports/` branch, in upstream's `php-x.y.z` form,
+with release notes listing the advisories it includes. Released changes are
+indexed in [CHANGELOG.md](CHANGELOG.md).
+
+## Building a backport from source
+
+```shell
+git clone --branch backports/php-7.4 https://github.com/phillarmonic/php-backports.git
+cd php-backports
+./buildconf
+./configure --prefix=/opt/php-7.4
+make -j"$(nproc)"
+make test
+sudo make install
+```
+
+The build requirements are the same as upstream: autoconf, bison, and re2c for a
+minimal build, plus libxml2 and libsqlite3 for a default one.
+
+On Debian and Ubuntu:
 
 ```shell
 sudo apt install -y pkg-config build-essential autoconf bison re2c libxml2-dev libsqlite3-dev
 ```
 
-On Fedora, you can install these using:
+On Fedora:
 
 ```shell
 sudo dnf install re2c bison autoconf make ccache libxml2-devel sqlite-devel
 ```
 
-On MacOS, you can install these using `brew`:
+On macOS, with Homebrew:
 
 ```shell
 brew install autoconf bison re2c libiconv libxml2 sqlite
 ```
 
-or with `MacPorts`:
+The oldest branches predate current toolchains. Building them on a modern system
+can need extra flags or a compiler from the same era. The branch's own
+`./configure --help` is the authority on what it accepts.
+
+If [drun](https://github.com/phillarmonic/drun) is installed, `xdrun build` runs
+the same steps with a minimal configuration, and re-runs `buildconf` and
+`configure` only when they are needed. See
+[the task runner](#the-task-runner) for the rest.
+
+## Testing
+
+Every release is built and tested before it is tagged. To check a branch
+yourself:
 
 ```shell
-sudo port install autoconf bison re2c libiconv libxml2 sqlite3
-```
-
-Generate configure:
-
-```shell
-./buildconf
-```
-
-Configure your build. `--enable-debug` is recommended for development, see
-`./configure --help` for a full list of options.
-
-```shell
-# For development
-./configure --enable-debug
-# For production
-./configure
-```
-
-Build PHP. To speed up the build, specify the maximum number of jobs using the
-`-j` argument:
-
-```shell
-make -j4
-```
-
-The number of jobs should usually match the number of available cores, which
-can be determined using `nproc`.
-
-## Testing PHP source code
-
-PHP ships with an extensive test suite, the command `make test` is used after
-successful compilation of the sources to run this test suite.
-
-Tests run in parallel by default, using up to 10 detected logical processors.
-Set `-jN` in `TEST_PHP_ARGS` or `TESTS` to override the worker count:
-
-```shell
+make test
+make TESTS=ext/openssl/ test
 make TEST_PHP_ARGS=-j4 test
 ```
 
-This runs `make test` with a maximum of 4 concurrent jobs. Alternatively,
-use `-j1` to run tests sequentially.
-
-Use the `TEST_PHP_ARGS` or `TESTS` variable to test only specific directories:
+Memory-safety work needs more than a green test run. A debug build with the Zend
+allocator disabled under Valgrind finds what a normal run misses:
 
 ```shell
-make TESTS=tests/lang/ test
+./configure --enable-debug
+make -j"$(nproc)"
+USE_ZEND_ALLOC=0 valgrind --quiet --leak-check=no sapi/cli/php -n path/to/test.php
 ```
 
-The [qa.php.net](https://qa.php.net) site provides more detailed info about
-testing and quality assurance.
+### The task runner
 
-## Installing PHP built from source
-
-After a successful build (and test), PHP may be installed with:
+A [drun](https://github.com/phillarmonic/drun) spec at `.drun/spec.drun` wraps
+the commands above so a backport is checked the same way every time. `xdrun` is
+a single binary; the spec is plain text and readable without it.
 
 ```shell
-make install
+xdrun doctor                        # can this machine build this branch?
+xdrun build                         # configure on demand, then compile
+xdrun test                          # full suite
+xdrun test-ext ext=standard         # one extension
+xdrun test-lang                     # tests/lang
+xdrun valgrind target=ext/phar      # a suite target under Valgrind
+xdrun valgrind-repro script=repro.php
+xdrun lint                          # changed PHP, checked by the branch CLI
+xdrun verify-commits                # commit message convention
+xdrun verify-identity               # the Phillarmonic line is in php -v
+xdrun ci                            # what a branch has to pass
 ```
 
-Depending on your permissions and prefix, `make install` may need superuser
-permissions.
+`xdrun --list` shows every task and the parameters it takes. `xdrun configure
+flags="..."` replaces the default build, which is the CLI alone
+(`--disable-all --enable-cli`); name the extensions a patch touches.
 
-## PHP extensions
+Two things to know before trusting a green run. `xdrun lint` and `xdrun
+verify-identity` use the CLI built from the branch, not the PHP installed on the
+host, because a modern PHP misreads old syntax. And `xdrun doctor` fails before
+a long build when the toolchain cannot work, naming what is missing or too old.
+On a modern system the usual gaps are bison 3.0 or newer, since macOS ships 2.3,
+and re2c, which several distributions leave out of a minimal install.
 
-Extensions provide additional functionality on top of PHP. PHP consists of many
-essential bundled extensions. Additional extensions can be found on the
-[PIE Extensions](https://packagist.org/extensions) list, and installed with
-[🥧 PIE, the PHP Installer for Extensions](https://github.com/php/pie) or the
-deprecated PHP Extension Community Library - [PECL](https://pecl.php.net).
+## Requesting a backport
+
+Backports are requested for vulnerabilities that are already public. Open an
+issue with the advisory id, the branch you need, and the upstream commit that
+fixes it. The issue template asks for the rest.
+
+Do not send unpublished vulnerabilities here. We cannot run an embargo, and this
+repository is not a disclosure channel. [SECURITY.md](SECURITY.md) explains
+where reports go.
+
+## Reporting a problem with a backport
+
+A crash, a failed build, or a behavior change introduced by one of our patches
+is an ordinary bug. Open an issue with the full `php -v` output, the branch, the
+configure line, and a small reproducer. If a patch reopens a vulnerability,
+mark the issue clearly and it moves to the front of the queue.
 
 ## Contributing
 
-The PHP source code is located in the Git repository at
-[github.com/php/php-src](https://github.com/php/php-src). Contributions are most
-welcome by forking the repository and sending a pull request.
+Read [BACKPORTING.md](BACKPORTING.md) for what qualifies, how a patch is adapted,
+and what a release needs. The most useful contributions are a missed advisory,
+a fix that applies cleanly, a regression test, and a successful build on an old
+platform.
 
-Discussions are done on GitHub, but depending on the topic can also be relayed
-to the official PHP developer mailing list internals@lists.php.net.
+[CONTRIBUTING.md](CONTRIBUTING.md), [CODING_STANDARDS.md](CODING_STANDARDS.md),
+and the files under `docs/` are upstream PHP documents, kept for reference.
+PHP's C style still applies to any patch sent here. The upstream RFC and feature
+process does not.
 
-New features require an RFC and must be accepted by the developers. See
-[Request for comments - RFC](https://wiki.php.net/rfc) and
-[Voting on PHP features](https://wiki.php.net/rfc/voting) for more information
-on the process.
+## Further reading
 
-Bug fixes don't require an RFC. If the bug has a GitHub issue, reference it in
-the commit message using `GH-NNNNNN`. Use `#NNNNNN` for tickets in the old
-[bugs.php.net](https://bugs.php.net) bug tracker.
+- [PHP manual](https://www.php.net/docs)
+- [PHP security advisories](https://github.com/php/php-src/security/advisories)
+- [PHP internals documentation](https://php.github.io/php-src/)
+- [Upstream php-src](https://github.com/php/php-src)
 
-    Fix GH-7815: php_uname doesn't recognise latest Windows versions
-    Fix #55371: get_magic_quotes_gpc() throws deprecation warning
+## License and credits
 
-See [Git workflow](https://wiki.php.net/vcs/gitworkflow) for details on how pull
-requests are merged.
+PHP is distributed under the [Modified BSD License](LICENSE)
+(SPDX-License-Identifier: `BSD-3-Clause`). This fork keeps that license, and the
+backports are released under the same terms.
 
-### Guidelines for contributors
+### No warranty, no liability
 
-See further documents in the repository for more information on how to
-contribute:
+The software is distributed "AS IS", without warranty of any kind, as stated in
+the [Modified BSD License](LICENSE). That applies to everything here: the
+backport patches, the release tags, and any binary or package built from them.
 
-- [Contributing to PHP](/CONTRIBUTING.md)
-- [PHP coding standards](/CODING_STANDARDS.md)
-- [Internal documentation](https://php.github.io/php-src/)
-- [Mailing list rules](/docs/mailinglist-rules.md)
-- [PHP release process](/docs/release-process.md)
+In plain terms, there is no guarantee that a backport closes a vulnerability,
+that it introduces no new bug, that it builds on your platform, or that it stays
+compatible with your extensions. Test it before you deploy it. To the extent the
+license and applicable law allow, Phillarmonic Software accepts no liability for
+damage arising from the use of these builds, including a compromised system,
+lost data, or downtime.
 
-## Credits
+### Paid consultancy
 
-For the list of people who've put work into PHP, please see the
-[PHP credits page](https://www.php.net/credits.php).
+These branches are maintained as time allows. If you need a specific fix ported
+on a schedule, a build validated on a platform we have not tested, a patch
+reviewed before you deploy it, or help planning a migration off an end-of-life
+version, Phillarmonic Software takes on paid consultancy for exactly this kind
+of work: <https://www.phillarmonic.com/>.
+
+A paid engagement can come with a support agreement. It does not change the
+license, it does not make a release an official PHP build, and it does not buy
+silence about a bug.
+
+The work in this repository is built on years of effort by the PHP developers
+and contributors. See the [PHP credits page](https://www.php.net/credits.php).
+The backports, and any mistakes in them, are ours.

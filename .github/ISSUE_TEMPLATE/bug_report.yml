@@ -1,11 +1,19 @@
-name: Bug report
-description: Create a bug report
-labels: ["Bug", "Status: Needs Triage"]
+name: Backport bug
+description: A crash, build failure, or regression in a build from this fork
 body:
+  - type: markdown
+    attributes:
+      value: |
+        This form is for bugs in a **Phillarmonic backport build**. For a bug in
+        an officially supported PHP version, use
+        [php/php-src](https://github.com/php/php-src/issues). For an unpublished
+        vulnerability, read
+        [SECURITY.md](https://github.com/phillarmonic/php-backports/blob/default/SECURITY.md)
+        first.
   - type: textarea
     attributes:
       label: Description
-      description: "Please provide a minimal way to reproduce the problem and describe what the expected vs actual behavior is. Provide a [3v4l.org](https://3v4l.org/) link if possible."
+      description: "A small reproducer, and what you expected instead. A [3v4l.org](https://3v4l.org/) link is not useful here, because it does not run this fork."
       value: |
         The following code:
 
@@ -24,22 +32,27 @@ body:
       required: true
   - type: textarea
     attributes:
-      label: PHP Version
+      label: php -v and branch
       description: |
-        Please run PHP with the `-v` flag (e.g. `php -v`, `php8.5 -v`, `php-fpm -v` or similar) and provide the full output of that command. If executing that command is not possible, please provide the full version number as given in PHPInfo.
-
-        Please make sure that the used PHP version [is a supported version](https://www.php.net/supported-versions.php).
+        The full output of `php -v` from the affected build, plus the branch it
+        came from (`backports/php-7.4`, `backports/php-8.1`, or a tag).
       placeholder: |
-        PHP 8.5.2 (cli) (built: Jan 21 2026 17:35:28) (NTS)
+        PHP 7.4.34 (cli) (built: Oct 26 2026 14:02:11) (NTS)
         Copyright © The PHP Group and Contributors
-        Built by Ubuntu
-        Zend Engine v4.5.2, Copyright © Zend by Perforce
-            with Zend OPcache v8.5.2, Copyright ©, Zend by Perforce
+        Built by Phillarmonic Software (https://www.phillarmonic.com/) - security backport, not an official PHP release
+        Zend Engine v3.4.0, Copyright (c) Zend Technologies
+
+        branch: backports/php-7.4
       render: plain
     validations:
       required: true
   - type: input
     attributes:
-      label: Operating System
-      description: "The used operating system, if relevant."
-      placeholder: "Ubuntu 24.04"
+      label: Configure line
+      description: "The `./configure` invocation, or the `config.nice` it produced."
+      placeholder: "./configure --prefix=/opt/php-7.4 --enable-debug"
+  - type: input
+    attributes:
+      label: Operating system
+      description: "Distribution and version, or the container image."
+      placeholder: "Debian 12, arm64"
