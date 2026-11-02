@@ -108,9 +108,28 @@ indexed in [CHANGELOG.md](CHANGELOG.md).
 
 ## Building a backport from source
 
+The supported way to build any branch is in a container. The host needs Docker
+and nothing else:
+
 ```shell
 git clone --branch backports/php-7.4 https://github.com/phillarmonic/php-backports.git
 cd php-backports
+xdrun docker-build          # builds the image once, then configures and compiles
+xdrun docker-test-lang
+```
+
+The image carries autoconf, re2c, both bison generations the series need, and
+the development headers for the extensions we patch, so a macOS laptop and a
+Linux CI runner build the same tree. Objects go to `.build/`, which is
+gitignored, and the container runs as your user id, so nothing it writes is
+owned by root. Without drun, `.drun/scripts/docker.sh build` runs the same
+steps.
+
+### Building on the host
+
+If you would rather build natively, the steps are upstream's:
+
+```shell
 ./buildconf
 ./configure --prefix=/opt/php-7.4
 make -j"$(nproc)"
@@ -139,14 +158,60 @@ On macOS, with Homebrew:
 brew install autoconf bison re2c libiconv libxml2 sqlite
 ```
 
-The oldest branches predate current toolchains. Building them on a modern system
-can need extra flags or a compiler from the same era. The branch's own
-`./configure --help` is the authority on what it accepts.
+The oldest branches predate current toolchains, and that is the reason the
+container exists. It resolves the toolchain half without touching a tree: PHP
+5.6 through 7.3 need the bison that still generates the `yystrlen` and
+`yystpcpy` helpers for their parser, and the image keeps 3.3.2 beside the
+default 3.7, choosing by branch. PHP 5.6 also needs a two-line fix to
+`Zend/zend_multiply.h` on ARM, where the AArch64 inline assembly uses a
+constraint that modern GCC now satisfies from memory. The branch carries it in
+its setup commit, so building 5.6 from the branch needs nothing extra; see
+[AGENTS.md](AGENTS.md). On a host build, the branch's own `./configure --help`
+is the authority on what it accepts.
 
 If [drun](https://github.com/phillarmonic/drun) is installed, `xdrun build` runs
 the same steps with a minimal configuration, and re-runs `buildconf` and
-`configure` only when they are needed. See
-[the task runner](#the-task-runner) for the rest.
+`configure` only when they are needed. `xdrun docker-build` does the same inside
+the container. See [the task runner](#the-task-runner) for the rest.
+
+## Container images
+
+Releases are published as source. The tag, its notes, and the history behind it
+are the release; there is no tarball and no binary download. What is published
+alongside the source is a container image of the build, so a pipeline can
+consume a backport without compiling PHP.
+
+```shell
+docker run --rm phillarmonic/php-backports:8.1 -r 'echo PHP_VERSION, "\n";'
+docker pull phillarmonic/php-backports:7.4
+```
+
+Two tags per release:
+
+| Tag | Moves |
+| --- | --- |
+| `8.1.34` | never; one image, one commit |
+| `8.1` | with each release in the series |
+
+Every tag is a manifest for `linux/amd64` and `linux/arm64`. The image is built
+from the same toolchain image and the same configure line that produced the
+tested build, so it is that build rather than a second one. It carries the CLI
+and these extensions:
+
+bcmath, calendar, ctype, curl, dom, exif, fileinfo, filter, ftp, iconv, json,
+ldap, libxml, mbstring, mysqli, mysqlnd, opcache, pcntl, pdo with the mysql,
+pgsql and sqlite drivers, pgsql, phar, posix, session, simplexml, soap, sockets,
+tokenizer, xml, xmlreader, xmlwriter, and zlib.
+
+PHP 5.6 and 7.0 predate OpenSSL 1.1. The toolchain carries 1.1.1, so those two
+series ship without `ext/openssl` rather than linked against a TLS library older
+than the one php.net archived. Everything else in the list is the same across
+the series.
+
+The base is Debian bullseye, the distribution the test suite ran on, which is
+what keeps the C library ABI identical to the build. Bullseye is past end of
+life, so treat the image as a fixed target for old software, not as a server to
+expose without thinking. These are not official PHP releases.
 
 ## Testing
 
@@ -154,10 +219,23 @@ Every release is built and tested before it is tagged. To check a branch
 yourself:
 
 ```shell
-make test
-make TESTS=ext/openssl/ test
-make TEST_PHP_ARGS=-j4 test
+xdrun docker-test                            # full suite
+xdrun docker-test-ext ext=openssl            # one extension
+xdrun docker-test-lang jobs=8                # tests/lang, parallel
+xdrun docker-valgrind target=ext/phar        # a target under Valgrind
 ```
+
+Without the runner, the underlying commands are upstream's:
+
+```shell
+make test
+make test TESTS="ext/openssl/"
+make test TESTS="-j8"                        # run-tests.php -j, 7.2 and later
+```
+
+`run-tests.php` takes its options and its test paths in one argument list, and
+the Makefile forwards only `TESTS`, so the option has to come first. `-j` does
+not exist before 7.2; the container runner detects that and runs serially.
 
 Memory-safety work needs more than a green test run. A debug build with the Zend
 allocator disabled under Valgrind finds what a normal run misses:
@@ -167,6 +245,39 @@ allocator disabled under Valgrind finds what a normal run misses:
 make -j"$(nproc)"
 USE_ZEND_ALLOC=0 valgrind --quiet --leak-check=no sapi/cli/php -n path/to/test.php
 ```
+
+### Continuous integration
+
+GitHub Actions builds and tests every `backports/` branch.
+`.github/ci-matrix.tsv` is the support matrix: one row per series and target,
+naming the runner, the container platform or the Visual C++ generation, and the
+suites to run. The workflow reads it, so adding a platform is a row, not a job.
+
+| Platform | Series | Runs on |
+| --- | --- | --- |
+| Linux x86_64 | all | `ubuntu-24.04`, the same container `xdrun docker-build` uses |
+| Linux aarch64 | all | `ubuntu-24.04-arm`, natively, no emulation |
+| Windows x64 and x86 | 7.4, 8.0, 8.1 | `windows-2022`, Visual Studio 2019 toolset |
+| Windows x64 and x86 | 7.0 through 7.3 | self-hosted, behind the `win-legacy` marker |
+
+Windows for 5.6 is absent on purpose: `phpsdk_setshell.bat` refuses any toolset
+below `vc14`, and the vc11 dependency set survives only in php.net's archive.
+Supporting it means building a driver on the pre-2.0 SDK, not adding a row.
+
+Rows behind a marker stay out of the matrix until the marker is enabled, so a
+machine that is switched off never leaves a job queued. Enable one with a
+`workflow_dispatch` run, or by labelling a pull request `ci:win-legacy`.
+
+Two images exist, and they are not the same thing. The toolchain image is
+internal: `ghcr.io/phillarmonic/php-backports-build`, tagged with the hash of
+`.drun/docker/`, pulled by every Linux job, and rebuilt once with the Actions
+cache when the pull misses. The release image is the product:
+`phillarmonic/php-backports` on Docker Hub, described below.
+
+`Tooling parity` runs weekly and fails when `.github/`, `.drun/`, `AGENTS.md`,
+or `.gitmessage` differ between `default` and a backport branch. GitHub always
+loads a workflow from the commit being built, so those files are copied into
+each setup commit, and this check keeps the copies honest.
 
 ### The task runner
 
@@ -186,18 +297,33 @@ xdrun lint                          # changed PHP, checked by the branch CLI
 xdrun verify-commits                # commit message convention
 xdrun verify-identity               # the Phillarmonic line is in php -v
 xdrun ci                            # what a branch has to pass
+
+# the same work in the container, with nothing but Docker on the host
+xdrun docker-doctor
+xdrun docker-build
+xdrun docker-test jobs=8
+xdrun docker-test-ext ext=session
+xdrun docker-test-lang
+xdrun docker-lint
+xdrun docker-valgrind target=ext/phar
+xdrun docker-ci
 ```
 
 `xdrun --list` shows every task and the parameters it takes. `xdrun configure
 flags="..."` replaces the default build, which is the CLI alone
-(`--disable-all --enable-cli`); name the extensions a patch touches.
+(`--disable-all --enable-cli`); name the extensions a patch touches. Extensions
+that take a library use `--with-`, not `--enable-`: `--with-openssl`,
+`--with-pgsql`, `--with-ldap`, `--with-libxml`. Under `--disable-all`, SOAP also
+needs `--with-libxml` explicitly.
 
 Two things to know before trusting a green run. `xdrun lint` and `xdrun
 verify-identity` use the CLI built from the branch, not the PHP installed on the
 host, because a modern PHP misreads old syntax. And `xdrun doctor` fails before
 a long build when the toolchain cannot work, naming what is missing or too old.
 On a modern system the usual gaps are bison 3.0 or newer, since macOS ships 2.3,
-and re2c, which several distributions leave out of a minimal install.
+and re2c, which several distributions leave out of a minimal install. The
+`docker-*` tasks remove both gaps, and they are the ones to reach for unless you
+are changing the build system itself.
 
 ## Requesting a backport
 

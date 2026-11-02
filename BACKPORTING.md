@@ -51,11 +51,14 @@ git switch --create backport/CVE-2024-12345 backports/php-7.4
 
 A new `backports/` branch starts with one `Fork:` commit that sets it up, for
 7.4 `Fork: set up backports/php-7.4`. That commit carries the identity patch
-from section 5 and the fork's tooling: `AGENTS.md`, `.gitmessage`, and `.drun/`.
-They live on the repository default, so copy them from a `default` checkout
-rather than retyping them. Every advisory branch is then cut from the current
-`backports/` head. Work happens on a short-lived branch named for the advisory
-and is merged back. Never commit to `PHP-7.4` or to `master`.
+from section 6 and the fork's tooling: `AGENTS.md`, `.gitmessage`, `.drun/`, and
+`.github/`. They live on the repository default, so copy them from a `default`
+checkout rather than retyping them. The `Tooling parity` workflow compares
+these copies across branches and fails when one has drifted.
+
+Every advisory branch is then cut from the current `backports/` head. Work
+happens on a short-lived branch named for the advisory and is merged back.
+Never commit to `PHP-7.4` or to `master`.
 
 Some upstream branch heads already claim the next patch level with a `-dev`
 suffix (`7.4.34-dev`). That is the number to release. Clear the suffix, do not
@@ -93,8 +96,18 @@ and leave it open. A wrong patch is worse than a missing one.
 Every backport carries a regression test. Start from the upstream `.phpt`, adapt
 `skipif`, the expected output, and the extension requirements to the branch.
 
-The drun tasks in `.drun/spec.drun` run the same commands with the parameters a
-backport needs:
+Run them in the container. It needs only Docker, and it carries the bison and
+re2c each series was built against, so the result does not depend on the host:
+
+```shell
+xdrun docker-doctor                 # toolchain inside the image
+xdrun docker-build                  # minimal build, configured on demand
+xdrun docker-test-ext ext=standard  # the touched extension
+xdrun docker-test-lang              # tests/lang
+xdrun docker-lint                   # changed PHP, checked by this branch's CLI
+```
+
+The host tasks do the same where the toolchain matches the branch:
 
 ```shell
 xdrun doctor                        # toolchain, branch, tree version
@@ -104,11 +117,16 @@ xdrun test-lang                     # tests/lang
 xdrun lint                          # changed PHP, checked by this branch's CLI
 ```
 
-`make` still works when `xdrun` is not installed:
+Add the extensions the advisory touches. A library-backed extension takes
+`--with-`, not `--enable-` (`--with-openssl`, `--with-pgsql`, `--with-ldap`),
+and under `--disable-all` SOAP also needs `--with-libxml`.
+
+`make` still works when `xdrun` is not installed. The Makefile forwards only
+`TESTS`, and `run-tests.php` wants its options before the test paths:
 
 ```shell
-make test TESTS=ext/standard/tests/strings/
-make TEST_PHP_ARGS=-j4 test
+make test TESTS="ext/standard/tests/strings/"
+make test TESTS="-j4"              # run-tests.php -j, 7.2 and later
 ```
 
 For memory-safety fixes, also run the reproducer under a debug build with the
@@ -122,7 +140,8 @@ USE_ZEND_ALLOC=0 valgrind --quiet --leak-check=no sapi/cli/php -n repro.php
 
 `xdrun configure-debug` and `xdrun build` produce that build, and `xdrun
 valgrind-repro script=repro.php` runs the last command against it. A whole suite
-target under Valgrind is `xdrun valgrind target=ext/phar`.
+target under Valgrind is `xdrun valgrind target=ext/phar`, or `xdrun
+docker-valgrind target=ext/phar` in the container.
 
 An AddressSanitizer build is worth it for use-after-free and out-of-bounds
 work, but Valgrind is enough to catch the common cases on the oldest branches.
@@ -131,7 +150,37 @@ Record what was tested in the pull request: branch, platform, extensions built,
 and the commands run. A test that was skipped is reported as skipped, not as
 green.
 
-## 5. Make the build identify itself
+## 5. Make the tree build on its target
+
+The container carries the toolchains the whole series needs, so 7.0 through 8.1
+build unmodified. One branch needs a source change before it can be built on the
+hardware this fork targets.
+
+PHP 5.6 does not compile on AArch64 with a current GCC. `Zend/zend_multiply.h`
+implements `ZEND_SIGNED_MULTIPLY_LONG` for that architecture with GCC's `"X"`
+constraint, which means "any operand" and therefore permits memory. GCC 10 takes
+that literally and emits `mul x1, [sp, 320], [sp, 312]`; the assembler rejects it
+because AArch64 multiplication has no memory operand. It fails at
+`Zend/zend_operators.lo`, as a build error rather than a wrong answer.
+
+7.4 and later already spell the same block with register constraints, so this is
+upstream's own fix arriving late:
+
+```diff
+-: "=X"(__tmpvar), "=X"(usedval)
+-: "X"(a), "X"(b));
++: "=&r"(__tmpvar), "=&r"(usedval)
++: "r"(a), "r"(b));
+```
+
+The change belongs in the 5.6 `Fork:` setup commit, before any security work,
+and never inside a `Backport:` commit. That block is only compiled on AArch64,
+so on x86_64 the patch is inert and the branch still builds both ways.
+
+Record the architecture a release was built on in its notes. "Builds on
+AArch64" and "builds on x86_64" are different claims.
+
+## 6. Make the build identify itself
 
 Every `backports/` branch carries the same small patch, applied before any
 security work, so a plain `./configure && make` produces a binary that cannot be
@@ -160,7 +209,7 @@ way to confirm the patch survived a rebase.
 Keep it byte-identical across branches apart from the surrounding code style,
 so it is easy to recognize in a diff.
 
-## 6. Cut a release
+## 7. Cut a release
 
 1. Set the version in `PHP_MAJOR_VERSION`, `PHP_MINOR_VERSION`, and
    `PHP_RELEASE_VERSION`: in `configure.ac` from 7.2 on, in `configure.in`
@@ -171,12 +220,17 @@ so it is easy to recognize in a diff.
 3. Tag on the `backports/` branch, in upstream's form: `php-7.4.34`.
 4. Write release notes listing each advisory by CVE and the upstream commit it
    came from. Say which extensions are touched.
-5. Publish only after the upstream advisory is public. If the advisory is still
-   under embargo, the work sits on the branch and waits. Once it is public, add
-   the release to `CHANGELOG.md` on `default`, under its version heading, naming
-   each CVE it fixes. `xdrun changelog version=7.4.34` promotes the Unreleased
-   section for you when it holds nothing but this release; with entries from two
-   series mixed together, write the heading by hand.
+5. Publish only after the upstream advisory is public. Until then the branch
+   and the tag stay local. Once it is public, add the release to `CHANGELOG.md`
+   on `default`, under its version heading, naming each CVE it fixes.
+   `xdrun changelog version=7.4.34` promotes the Unreleased section for you when
+   it holds nothing but this release; with entries from two series mixed
+   together, write the heading by hand.
+6. Push the tag. That starts `Release image`, which builds the tagged commit
+   through `.drun/scripts/build-php-image.sh` on amd64 and arm64 and publishes
+   `phillarmonic/php-backports:<version>` and `<series>` to Docker Hub. It needs
+   the `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` repository secrets. A failure
+   there leaves the source release intact and can be rerun.
 
 ## Checklist
 
@@ -191,4 +245,5 @@ so it is easy to recognize in a diff.
 - [ ] `xdrun ci` green on the branch tip
 - [ ] version set, `-dev` cleared
 - [ ] tag and release notes name every CVE
+- [ ] release image published for amd64 and arm64, or its failure recorded
 - [ ] nothing published before the advisory
