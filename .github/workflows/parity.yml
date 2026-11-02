@@ -1,0 +1,24 @@
+name: Tooling parity
+
+on:
+  schedule:
+    - cron: '0 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  parity:
+    name: Backport branches match default
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: default
+          fetch-depth: 0
+      # fetch-depth: 0 leaves every origin/* branch in refs/remotes, which is
+      # what check-parity.sh compares against.
+      - name: Compare the managed tooling set
+        run: .github/scripts/check-parity.sh

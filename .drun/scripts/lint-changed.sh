@@ -7,18 +7,32 @@
 
 set -euo pipefail
 
-php_bin="sapi/cli/php"
+php_bin="${PHP_BIN:-sapi/cli/php}"
 if [[ ! -x "$php_bin" ]]; then
     echo "No built CLI at $php_bin. Run 'xdrun build' first." >&2
     exit 1
 fi
 
+# Generated files in the out-of-tree build directory are not edited by hand
+# and are not covered by the branch's .gitignore. Skip them by path so lint
+# does not depend on which ignore rules the checkout happens to carry.
+skip="${PHP_BACKPORTS_BUILD_DIR:-.build}"
+
 files=()
+keep() {
+    case "$1" in
+        "$skip"/*|"$skip") return 1 ;;
+        *) files+=("$1") ;;
+    esac
+}
+
 if [[ $# -gt 0 ]]; then
-    files=("$@")
+    for file in "$@"; do
+        keep "$file" || true
+    done
 else
     while IFS= read -r file; do
-        files+=("$file")
+        keep "$file" || true
     done < <(
         {
             git diff --name-only --diff-filter=ACMR HEAD -- '*.php'

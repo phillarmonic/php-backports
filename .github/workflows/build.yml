@@ -1,0 +1,155 @@
+name: Build and test
+
+run-name: Build ${{ inputs.series || github.ref_name }}
+
+on:
+  push:
+    branches:
+      - 'backports/**'
+  pull_request:
+    branches:
+      - 'backports/**'
+  workflow_dispatch:
+    inputs:
+      series:
+        description: 'Series to build, or all'
+        type: string
+        default: all
+      markers:
+        description: 'Runner markers to enable, space separated, for example win-legacy'
+        type: string
+        default: ''
+      suites:
+        description: 'Test paths, replacing the matrix default'
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  plan:
+    name: Plan
+    runs-on: ubuntu-24.04
+    outputs:
+      linux-matrix: ${{ steps.plan.outputs.linux-matrix }}
+      linux-count: ${{ steps.plan.outputs.linux-count }}
+      windows-matrix: ${{ steps.plan.outputs.windows-matrix }}
+      windows-count: ${{ steps.plan.outputs.windows-count }}
+      series: ${{ steps.plan.outputs.series }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Select the matrix rows
+        id: plan
+        env:
+          DISPATCH_SERIES: ${{ inputs.series }}
+          CI_MARKERS: ${{ inputs.markers }}
+          CI_SUITES: ${{ inputs.suites }}
+          CI_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: .github/scripts/ci-plan.sh
+
+  linux:
+    name: Linux ${{ matrix.platform }} PHP ${{ matrix.series }}
+    needs: plan
+    if: needs.plan.outputs.linux-count != '0'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    env:
+      PHP_BACKPORTS_PLATFORM: ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.plan.outputs.linux-matrix) }}
+    steps:
+      # A dispatch can start from default and still test a series branch. A push
+      # and a pull request already sit on the commit to build, so leave those to
+      # checkout: naming head_ref would break pull requests opened from a fork.
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && matrix.branch || '' }}
+      - uses: docker/setup-buildx-action@v3
+      - name: Reuse the published image or build it with the actions cache
+        run: |
+          tag="docker-$(printf '%s' '${{ hashFiles('.drun/docker/**') }}' | cut -c1-32)"
+          if [[ "$tag" == "docker-" ]]; then
+            echo "no files under .drun/docker" >&2
+            exit 1
+          fi
+          image="ghcr.io/phillarmonic/php-backports-build:$tag"
+          echo "PHP_BACKPORTS_IMAGE=$image" >> "$GITHUB_ENV"
+          if docker pull "$image"; then
+            echo "Using $image"
+            exit 0
+          fi
+          echo "Nothing published for this Dockerfile yet; building it."
+          docker buildx build --load -t "$image" \
+            --cache-from type=gha,scope=image-${{ matrix.target }} \
+            --cache-to type=gha,mode=max,scope=image-${{ matrix.target }} \
+            -f .drun/docker/Dockerfile .drun/docker
+      - name: Build
+        run: ./.drun/scripts/docker.sh build "$(nproc)"
+      - name: Test
+        run: ./.drun/scripts/docker.sh test "${{ matrix.suites }}" "$(nproc)"
+
+  windows:
+    name: Windows ${{ matrix.arch }} ${{ matrix.crt }} PHP ${{ matrix.series }}
+    needs: plan
+    if: needs.plan.outputs.windows-count != '0'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: cmd
+    env:
+      PHP_BACKPORTS_SERIES: ${{ matrix.series }}
+      PHP_BACKPORTS_CRT: ${{ matrix.crt }}
+      PHP_BACKPORTS_ARCH: ${{ matrix.arch }}
+      PHP_BACKPORTS_TOOLSET: ${{ matrix.toolset }}
+      PHP_BACKPORTS_SUITES: ${{ matrix.suites }}
+      PHP_BACKPORTS_SDK_DIR: C:\php-sdk
+      PHP_BACKPORTS_DEPS_DIR: C:\deps
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.plan.outputs.windows-matrix) }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && matrix.branch || '' }}
+      - name: Cache the PHP SDK and its dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            C:\php-sdk
+            C:\deps
+          key: php-sdk-${{ matrix.crt }}-${{ matrix.arch }}-${{ matrix.series }}-v1
+      - name: Fetch the SDK
+        run: |
+          if not exist "%PHP_BACKPORTS_SDK_DIR%" git clone --depth 1 https://github.com/php/php-sdk-binary-tools "%PHP_BACKPORTS_SDK_DIR%"
+      - name: Build
+        run: |
+          set "TOOLSET_ARGS="
+          if not "%PHP_BACKPORTS_TOOLSET%"=="" if not "%PHP_BACKPORTS_TOOLSET%"=="-" set "TOOLSET_ARGS=-s %PHP_BACKPORTS_TOOLSET%"
+          call "%PHP_BACKPORTS_SDK_DIR%\phpsdk-%PHP_BACKPORTS_CRT%-%PHP_BACKPORTS_ARCH%.bat" %TOOLSET_ARGS% -t .github\scripts\windows-build.cmd
+          if errorlevel 1 exit /b %errorlevel%
+      - name: Test
+        run: |
+          set "TOOLSET_ARGS="
+          if not "%PHP_BACKPORTS_TOOLSET%"=="" if not "%PHP_BACKPORTS_TOOLSET%"=="-" set "TOOLSET_ARGS=-s %PHP_BACKPORTS_TOOLSET%"
+          call "%PHP_BACKPORTS_SDK_DIR%\phpsdk-%PHP_BACKPORTS_CRT%-%PHP_BACKPORTS_ARCH%.bat" %TOOLSET_ARGS% -t .github\scripts\windows-test.cmd
+          if errorlevel 1 exit /b %errorlevel%
+      - name: Keep the failing tests
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ matrix.series }}-${{ matrix.arch }}-diffs
+          path: |
+            **/*.diff
+            **/*.out
+          if-no-files-found: ignore
+          retention-days: 7

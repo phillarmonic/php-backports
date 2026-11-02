@@ -1,0 +1,84 @@
+name: Container image
+
+on:
+  push:
+    branches:
+      - default
+    paths:
+      - '.drun/docker/**'
+      - '.github/workflows/image.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: image-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            platform: linux/amd64
+            target: linux
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            platform: linux/arm64
+            target: linux-arm64
+            arch: arm64
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Name the image after the Dockerfile it came from
+        id: meta
+        run: |
+          tag="docker-$(printf '%s' '${{ hashFiles('.drun/docker/**') }}' | cut -c1-32)"
+          if [[ "$tag" == "docker-" ]]; then
+            echo "no files under .drun/docker" >&2
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .drun/docker
+          platforms: ${{ matrix.platform }}
+          push: true
+          tags: ghcr.io/phillarmonic/php-backports-build:${{ steps.meta.outputs.tag }}-${{ matrix.arch }}
+          cache-from: type=gha,scope=image-${{ matrix.target }}
+          cache-to: type=gha,mode=max,scope=image-${{ matrix.target }}
+
+  manifest:
+    name: Merge the architectures
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish one tag that resolves per architecture
+        env:
+          TAG: ${{ needs.build.outputs.tag }}
+        run: |
+          docker buildx imagetools create \
+            -t "ghcr.io/phillarmonic/php-backports-build:$TAG" \
+            "ghcr.io/phillarmonic/php-backports-build:$TAG-amd64" \
+            "ghcr.io/phillarmonic/php-backports-build:$TAG-arm64"
