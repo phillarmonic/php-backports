@@ -129,6 +129,40 @@ docker_run() {
     if [[ -n "$cflags" ]]; then
         args+=(-e "CFLAGS=$cflags")
     fi
+    # The source is bind-mounted read-write, so every file under /src belongs to
+    # the host uid. php_get_current_user() resolves the owner of the running
+    # script with getpwuid(), and the image knows only its own users: with no
+    # entry for that uid the call returns an empty string, and
+    # sapi/cli/tests/bug61546 fails on a detail that says nothing about the
+    # tree. Mount the image's own passwd plus an entry for each uid involved:
+    # the host's, which owns the files, and the one the container runs as,
+    # which is the host uid unless PHP_BACKPORTS_DOCKER_USER says otherwise.
+    local -a passwd_uids=()
+    local pair
+    for pair in "$(id -u 2>/dev/null || true):$(id -g 2>/dev/null || true)" "$docker_user"; do
+        [[ "$pair" =~ ^[0-9]+:[0-9]+$ ]] || continue
+        [[ "${pair%%:*}" == 0 ]] && continue
+        case " ${passwd_uids[*]-} " in *" $pair "*) continue ;; esac
+        passwd_uids+=("$pair")
+    done
+    if (( ${#passwd_uids[@]} )); then
+        local image_id passwd_base passwd_file
+        image_id=$(docker image inspect --format '{{.Id}}' "$image" 2>/dev/null || echo unknown)
+        passwd_base="$build_dir/passwd.base-${image_id#sha256:}"
+        passwd_file="$build_dir/passwd"
+        if [[ ! -f "$passwd_base" ]]; then
+            docker run --rm --entrypoint cat "$image" /etc/passwd 2>/dev/null > "$passwd_base" \
+                || printf 'root:x:0:0:root:/root:/bin/sh\n' > "$passwd_base"
+        fi
+        {
+            cat "$passwd_base"
+            for pair in "${passwd_uids[@]}"; do
+                printf 'phpbackports:x:%s:%s:PHP backports build:/tmp:/bin/sh\n' \
+                    "${pair%%:*}" "${pair##*:}"
+            done
+        } > "$passwd_file"
+        args+=(-v "$passwd_file:/etc/passwd:ro")
+    fi
     args+=(-v "$root:/src" -v "$build_dir:/build" -w "$workdir")
     args+=(${extra_mounts[@]+"${extra_mounts[@]}"})
     if [[ -t 0 && -t 1 ]]; then
