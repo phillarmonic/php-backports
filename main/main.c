@@ -1689,6 +1689,18 @@ int php_request_startup(TSRMLS_D)
 		zend_activate_modules(TSRMLS_C);
 		PG(modules_activated)=1;
 	} zend_catch {
+		/* The allocator ran out of memory while the request was still being
+		 * built. Modules are what reset their own request state, and they are
+		 * activated at the end of this block, so the rest of the request would
+		 * run against state that was never finished. 5.6 has no fallible
+		 * allocation and no unwind path to repair it; a reused worker is what
+		 * turns that into code execution. End the process here, before any
+		 * cleanup can read half-built state. The SAPI respawns a worker and the
+		 * request was already a failure. */
+		if (zend_oom_bailout(TSRMLS_C)) {
+			fflush(NULL);
+			exit(255);
+		}
 		retval = FAILURE;
 	} zend_end_try();
 
