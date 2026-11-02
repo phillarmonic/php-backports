@@ -2642,23 +2642,40 @@ static void php_session_rfc1867_update(php_session_rfc1867_progress *progress, i
 		progress->next_update = Z_LVAL_P(progress->post_bytes_processed) + progress->update_step;
 	}
 
-	php_session_initialize(TSRMLS_C);
-	PS(session_status) = php_session_active;
-	IF_SESSION_VARS() {
-		progress->cancel_upload |= php_check_cancel_upload(progress TSRMLS_CC);
-		ZEND_SET_SYMBOL_WITH_LENGTH(Z_ARRVAL_P(PS(http_session_vars)), progress->key.c, progress->key.len+1, progress->data, 2, 0);
+	/* This runs before RINIT, so the decode and the encode must not run a
+	 * single line of user code. A refused decode writes nothing, which leaves
+	 * the stored record intact. */
+	{
+		zend_bool no_user_code = PG(unserialize_no_user_code);
+
+		PG(unserialize_no_user_code) = 1;
+		php_session_initialize(TSRMLS_C);
+		if (PS(session_status) == php_session_active) {
+			IF_SESSION_VARS() {
+				progress->cancel_upload |= php_check_cancel_upload(progress TSRMLS_CC);
+				ZEND_SET_SYMBOL_WITH_LENGTH(Z_ARRVAL_P(PS(http_session_vars)), progress->key.c, progress->key.len+1, progress->data, 2, 0);
+			}
+			php_session_flush(TSRMLS_C);
+		}
+		PG(unserialize_no_user_code) = no_user_code;
 	}
-	php_session_flush(TSRMLS_C);
 } /* }}} */
 
 static void php_session_rfc1867_cleanup(php_session_rfc1867_progress *progress TSRMLS_DC) /* {{{ */
 {
-	php_session_initialize(TSRMLS_C);
-	PS(session_status) = php_session_active;
-	IF_SESSION_VARS() {
-		zend_hash_del(Z_ARRVAL_P(PS(http_session_vars)), progress->key.c, progress->key.len+1);
+	{
+		zend_bool no_user_code = PG(unserialize_no_user_code);
+
+		PG(unserialize_no_user_code) = 1;
+		php_session_initialize(TSRMLS_C);
+		if (PS(session_status) == php_session_active) {
+			IF_SESSION_VARS() {
+				zend_hash_del(Z_ARRVAL_P(PS(http_session_vars)), progress->key.c, progress->key.len+1);
+			}
+			php_session_flush(TSRMLS_C);
+		}
+		PG(unserialize_no_user_code) = no_user_code;
 	}
-	php_session_flush(TSRMLS_C);
 } /* }}} */
 
 static int php_session_rfc1867_callback(unsigned int event, void *event_data, void **extra TSRMLS_DC) /* {{{ */
@@ -2678,6 +2695,13 @@ static int php_session_rfc1867_callback(unsigned int event, void *event_data, vo
 	switch(event) {
 		case MULTIPART_EVENT_START: {
 			multipart_event_start *data = (multipart_event_start *) event_data;
+
+			/* Parsing runs before RINIT, so the previous request's session state
+			 * is still here. A bailout there can leave it pointing into request
+			 * memory that has since been freed. */
+			php_rinit_session_globals(TSRMLS_C);
+			zend_delete_global_variable("_SESSION", sizeof("_SESSION") - 1 TSRMLS_CC);
+
 			progress = ecalloc(1, sizeof(php_session_rfc1867_progress));
 			progress->content_length = data->content_length;
 			progress->sname_len  = strlen(PS(session_name));
@@ -2825,6 +2849,9 @@ static int php_session_rfc1867_callback(unsigned int event, void *event_data, vo
 					php_session_rfc1867_update(progress, 1 TSRMLS_CC);
 				}
 				php_rshutdown_session_globals(TSRMLS_C);
+				/* The handler registered $_SESSION while decoding. It is not the
+				 * script's session and must not survive the parse. */
+				zend_delete_global_variable("_SESSION", sizeof("_SESSION") - 1 TSRMLS_CC);
 			}
 
 			if (progress->data) {

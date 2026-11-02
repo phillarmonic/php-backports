@@ -431,6 +431,7 @@ struct _zend_mm_heap {
 	size_t              reserve_size;
 	void               *reserve;
 	int                 overflow;
+	zend_bool           oom_bailout;
 	int                 internal;
 #if ZEND_MM_CACHE
 	unsigned int        cached;
@@ -1749,6 +1750,12 @@ static void zend_mm_safe_error(zend_mm_heap *heap,
 #endif
 	size_t size)
 {
+	/* Remember that this request ran the allocator out of memory. A request
+	 * that fails this way before its modules are activated leaves state that
+	 * startup and shutdown never finished building; the process must not
+	 * serve another request. */
+	heap->oom_bailout = 1;
+
 	if (heap->reserve) {
 		_zend_mm_free_int(heap, heap->reserve ZEND_FILE_LINE_CC ZEND_FILE_LINE_EMPTY_CC);
 		heap->reserve = NULL;
@@ -2711,6 +2718,11 @@ ZEND_API size_t zend_memory_usage(int real_usage TSRMLS_DC)
 #endif
 		return usage;
 	}
+}
+
+ZEND_API int zend_oom_bailout(TSRMLS_D)
+{
+	return AG(mm_heap) ? AG(mm_heap)->oom_bailout : 0;
 }
 
 ZEND_API size_t zend_memory_peak_usage(int real_usage TSRMLS_DC)

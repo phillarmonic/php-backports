@@ -161,6 +161,9 @@ void zend_debug_alloc_output(char *format, ...);
 ZEND_API size_t zend_memory_usage(int real_usage TSRMLS_DC);
 ZEND_API size_t zend_memory_peak_usage(int real_usage TSRMLS_DC);
 
+/* Non-zero when the current request ran the allocator out of memory. */
+ZEND_API int zend_oom_bailout(TSRMLS_D);
+
 END_EXTERN_C()
 
 /* fast cache for zval's */

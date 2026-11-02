@@ -1635,6 +1635,9 @@ int php_request_startup(TSRMLS_D)
 	zend_try {
 		PG(in_error_log) = 0;
 		PG(during_request_startup) = 1;
+		/* The upload progress decode clears this on both paths, but a bailout
+		 * can leave it set for the life of the worker. */
+		PG(unserialize_no_user_code) = 0;
 
 		php_output_activate(TSRMLS_C);
 
@@ -1686,6 +1689,18 @@ int php_request_startup(TSRMLS_D)
 		zend_activate_modules(TSRMLS_C);
 		PG(modules_activated)=1;
 	} zend_catch {
+		/* The allocator ran out of memory while the request was still being
+		 * built. Modules are what reset their own request state, and they are
+		 * activated at the end of this block, so the rest of the request would
+		 * run against state that was never finished. 5.6 has no fallible
+		 * allocation and no unwind path to repair it; a reused worker is what
+		 * turns that into code execution. End the process here, before any
+		 * cleanup can read half-built state. The SAPI respawns a worker and the
+		 * request was already a failure. */
+		if (zend_oom_bailout(TSRMLS_C)) {
+			fflush(NULL);
+			exit(255);
+		}
 		retval = FAILURE;
 	} zend_end_try();
 
@@ -1818,9 +1833,13 @@ void php_request_shutdown_for_hook(void *dummy)
 void php_request_shutdown(void *dummy)
 {
 	zend_bool report_memleaks;
+	zend_bool oom_at_entry;
+	zend_bool oom_during_shutdown = 0;
 	TSRMLS_FETCH();
 
 	report_memleaks = PG(report_memleaks);
+	/* Read while the heap is still there: shutdown_memory_manager() retires it. */
+	oom_at_entry = zend_oom_bailout(TSRMLS_C);
 
 	/* EG(opline_ptr) points into nirvana and therefore cannot be safely accessed
 	 * inside zend_executor callback functions.
@@ -1916,6 +1935,14 @@ void php_request_shutdown(void *dummy)
 		php_shutdown_stream_hashes(TSRMLS_C);
 	} zend_end_try();
 
+	/* An allocation failed while this shutdown was running, for example inside
+	 * a shutdown function or a destructor. The request had no OOM before that,
+	 * so user code was mid-way through when the heap ran out and the comments
+	 * on the startup barrier apply: do not reuse this process. */
+	if (!oom_at_entry && zend_oom_bailout(TSRMLS_C)) {
+		oom_during_shutdown = 1;
+	}
+
 	/* 11. Free Willy (here be crashes) */
 	zend_try {
 		shutdown_memory_manager(CG(unclean_shutdown) || !report_memleaks, 0 TSRMLS_CC);
@@ -1926,6 +1953,11 @@ void php_request_shutdown(void *dummy)
 	zend_try {
 		zend_unset_timeout(TSRMLS_C);
 	} zend_end_try();
+
+	if (oom_during_shutdown) {
+		fflush(NULL);
+		exit(255);
+	}
 
 #ifdef PHP_WIN32
 	if (PG(com_initialized)) {

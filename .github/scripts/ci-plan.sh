@@ -84,7 +84,7 @@ if (( ! selected )); then
     rows_file=/dev/null
 fi
 
-while IFS=$'\t' read -r s t r p c a tool suites marker; do
+while IFS=$'\t' read -r s t r p c a tool suites marker configure; do
     if [[ -z "${s:-}" || "$s" == '#'* || "$s" == series ]]; then
         continue
     fi
@@ -112,8 +112,8 @@ while IFS=$'\t' read -r s t r p c a tool suites marker; do
         row_branch="backports/php-$s"
     fi
 
-    row=$(printf '{"series":"%s","target":"%s","runner":%s,"platform":"%s","crt":"%s","arch":"%s","toolset":"%s","suites":"%s","marker":"%s","branch":"%s"}' \
-        "$s" "$t" "$r" "$p" "$c" "$a" "$tool" "$suites" "$marker" "$row_branch")
+    row=$(printf '{"series":"%s","target":"%s","runner":%s,"platform":"%s","crt":"%s","arch":"%s","toolset":"%s","suites":"%s","marker":"%s","configure":"%s","branch":"%s"}' \
+        "$s" "$t" "$r" "$p" "$c" "$a" "$tool" "$suites" "$marker" "${configure:--}" "$row_branch")
 
     case "$t" in
         linux*)   linux_rows+=("$row");   linux_count=$((linux_count + 1)) ;;

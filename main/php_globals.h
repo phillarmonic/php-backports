@@ -64,6 +64,10 @@ struct _php_core_globals {
 	char *output_handler;
 
 	char *unserialize_callback_func;
+	/* Set around the session upload progress decode: resolving a class,
+	 * calling unserialize_callback_func, __wakeup(), Serializable::unserialize()
+	 * or __sleep() there would run user code before RINIT. */
+	zend_bool unserialize_no_user_code;
 	long serialize_precision;
 
 	long memory_limit;
