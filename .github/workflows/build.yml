@@ -91,6 +91,11 @@ jobs:
             --cache-from type=gha,scope=image-${{ matrix.target }} \
             --cache-to type=gha,mode=max,scope=image-${{ matrix.target }} \
             -f .drun/docker/Dockerfile .drun/docker
+      # A row that names its own configure flags gets an extension set the
+      # default minimal build leaves out. The rest keep --disable-all --enable-cli.
+      - name: Configure
+        if: matrix.configure != '-' && matrix.configure != ''
+        run: ./.drun/scripts/docker.sh configure ${{ matrix.configure }}
       - name: Build
         run: ./.drun/scripts/docker.sh build "$(nproc)"
       - name: Test
