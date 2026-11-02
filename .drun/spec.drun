@@ -1,0 +1,288 @@
+# drun (do-run) CLI is a fast, semantic task runner with
+# its own powerful automation language. Effortless tasks, serious speed.
+# Learn more at https://github.com/phillarmonic/drun
+#
+# Routine work for the php-backports tree. The build tasks assume a Unix host
+# and the tree of whichever branch is checked out: 5.6 and the early 7.x
+# series use configure.in, 7.2 and later use configure.ac, and ./buildconf
+# handles both.
+#
+# The default configure keeps the build small and reproducible. Pass flags
+# to build the extensions a backport touches, for example:
+#   xdrun configure flags="--disable-all --enable-cli --enable-phar"
+
+version: 2.0
+
+project "php-backports" version "1.0":
+
+task "default" means "Show available project automation":
+	info "PHP security backports: 5.6, 7.0 through 7.4, 8.0, 8.1"
+	info "Available tasks: {available tasks(', ')}"
+
+task "doctor" means "Report the toolchain a build will use":
+	step "Checking build tools"
+	run ".drun/scripts/doctor.sh"
+
+# Container builds.
+#
+# These tasks need only Docker. The image carries autoconf, re2c, both bison
+# generations the series need, the compilers, and the development libraries, so
+# a host with the wrong toolchain can still build and test the checked-out
+# branch. The build is out of tree in .build/, so the host tree is not polluted
+# with objects.
+#
+# The default image is Debian bullseye with PHP 8.1 for build/gen_stub.php.
+# Override it for a different era:
+#   xdrun docker-image base="php:8.3-cli-bookworm" tag="php-backports-build:bookworm"
+
+task "docker-image" means "Build the container image (base=..., tag=...)":
+	given $base defaults to "php:8.1-cli-bullseye"
+	given $tag defaults to "php-backports-build:bullseye"
+	step "Building {$tag} from {$base}"
+	run "PHP_BACKPORTS_BASE_IMAGE=\"{$base}\" PHP_BACKPORTS_IMAGE=\"{$tag}\" .drun/scripts/docker.sh image"
+	success "Container image is ready"
+
+task "docker-doctor" means "Report the toolchain inside the container":
+	step "Checking the container toolchain"
+	run ".drun/scripts/docker.sh doctor"
+
+task "docker-buildconf" means "Regenerate configure inside the container":
+	step "Running buildconf in the container"
+	run ".drun/scripts/docker.sh buildconf"
+	success "configure is up to date"
+
+task "docker-configure" means "Configure an out-of-tree container build (flags=\"...\")":
+	given $flags defaults to "--disable-all --enable-cli"
+	step "Configuring in the container with: {$flags}"
+	run ".drun/scripts/docker.sh configure {$flags}"
+	success "Container Makefile generated in .build/"
+
+task "docker-build" means "Compile in the container (jobs=N caps parallelism)":
+	given $jobs defaults to ""
+	step "Compiling in the container"
+	run ".drun/scripts/docker.sh build \"{$jobs}\""
+	success "Container build finished: .build/sapi/cli/php"
+
+task "docker-test" means "Run the test suite in the container (filter=..., jobs=N)":
+	given $filter defaults to ""
+	given $jobs defaults to ""
+	step "Running container tests"
+	run ".drun/scripts/docker.sh test \"{$filter}\" \"{$jobs}\""
+	success "Container tests passed"
+
+task "docker-test-ext" means "Run one extension's tests in the container (ext=phar, jobs=N)":
+	requires $ext
+	given $jobs defaults to ""
+	step "Running container tests for ext/{$ext}"
+	run ".drun/scripts/docker.sh test-ext \"{$ext}\" \"{$jobs}\""
+	success "Container tests passed for ext/{$ext}"
+
+task "docker-test-lang" means "Run tests/lang in the container (jobs=N)":
+	given $jobs defaults to ""
+	step "Running container language tests"
+	run ".drun/scripts/docker.sh test-lang \"{$jobs}\""
+	success "Container language tests passed"
+
+task "docker-lint" means "Syntax-check changed PHP files in the container":
+	step "Checking PHP syntax in the container"
+	run ".drun/scripts/docker.sh lint"
+
+task "docker-verify-commits" means "Check commit messages in the container (range=HEAD)":
+	given $range defaults to "HEAD"
+	step "Checking commit messages in {$range}"
+	run ".drun/scripts/docker.sh verify-commits \"{$range}\""
+
+task "docker-verify-identity" means "Check the container CLI's Phillarmonic banner":
+	step "Checking php -v in the container"
+	run ".drun/scripts/docker.sh verify-identity"
+
+task "docker-valgrind" means "Run a test target under Valgrind in the container (target=ext/phar)":
+	requires $target
+	step "Running {$target} under Valgrind in the container"
+	run ".drun/scripts/docker.sh valgrind \"{$target}\""
+
+task "docker-clean" means "Clean the container build, keeping it configured":
+	step "Cleaning the container build"
+	run ".drun/scripts/docker.sh clean"
+
+task "docker-distclean" means "Remove the container build directory contents":
+	step "Distcleaning the container build"
+	run ".drun/scripts/docker.sh distclean"
+
+task "docker-rebuild" means "Distclean, buildconf, configure, and compile in the container":
+	step "Rebuilding in the container"
+	run ".drun/scripts/docker.sh rebuild"
+	success "Container rebuild finished"
+
+task "docker-shell" means "Open a shell in the build container":
+	step "Opening a shell in the container"
+	run ".drun/scripts/docker.sh shell"
+
+task "docker-ci-quick" mode "ci" means "Container fast loop: commit messages, syntax, language tests":
+	step "Commit messages"
+	call task "docker-verify-commits"
+	step "PHP syntax"
+	call task "docker-lint"
+	step "Language tests"
+	call task "docker-test-lang"
+	success "Container fast checks passed"
+
+task "docker-ci" mode "ci" means "Container build and full test suite":
+	step "Commit messages"
+	call task "docker-verify-commits"
+	step "Configure and compile"
+	call task "docker-build"
+	step "PHP syntax"
+	call task "docker-lint"
+	step "Full test suite"
+	call task "docker-test" with jobs="4"
+	success "Container CI passed"
+
+task "buildconf" means "Regenerate the configure script":
+	requires tools:
+		autoconf
+	step "Running buildconf --force"
+	run "./buildconf --force"
+	success "configure is up to date"
+
+task "configure" means "Configure a build (flags=\"...\" replaces the default flags)":
+	given $flags defaults to "--disable-all --enable-cli"
+	requires tools:
+		bison
+		re2c
+		pkg-config
+	if file "configure" not exists:
+		call task "buildconf"
+	step "Configuring with: {$flags}"
+	run "./configure {$flags}"
+	success "Makefile generated"
+
+task "configure-debug" means "Configure a debug build for memory-safety work":
+	call task "configure" with flags="--disable-all --enable-cli --enable-debug"
+
+task "build" means "Compile the tree (jobs=N caps parallelism)":
+	given $jobs defaults to ""
+	requires tools:
+		make
+	if file "Makefile" not exists:
+		step "No Makefile yet; configuring first"
+		call task "configure"
+	step "Compiling"
+	if $jobs is empty:
+		run "make -j$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
+	else:
+		run "make -j{$jobs}"
+	success "Build finished: sapi/cli/php"
+
+task "test" means "Run the test suite (filter=..., jobs=N)":
+	given $filter defaults to ""
+	given $jobs defaults to ""
+	requires tools:
+		make
+	if file "Makefile" not exists:
+		fail "No configured build. Run 'xdrun build' first."
+	if $filter is empty:
+		step "Running the full test suite"
+	else:
+		step "Running tests: {$filter}"
+	if $jobs is empty:
+		run "NO_INTERACTION=1 REPORT_EXIT_STATUS=1 make test TESTS={$filter}"
+	else:
+		step "Using {$jobs} test workers"
+		run "NO_INTERACTION=1 REPORT_EXIT_STATUS=1 make test TESTS={$filter} TEST_PHP_ARGS=-j{$jobs}"
+	success "Tests passed"
+
+task "test-ext" means "Run one extension's tests (ext=phar, jobs=N)":
+	requires $ext
+	given $jobs defaults to ""
+	if folder "ext/{$ext}" not exists:
+		fail "No such extension: ext/{$ext}"
+	set $target to "ext/{$ext}"
+	set $workers to "{$jobs}"
+	call task "test" with filter="{$target}" jobs="{$workers}"
+
+task "test-lang" means "Run the language test suite (jobs=N)":
+	given $jobs defaults to ""
+	set $workers to "{$jobs}"
+	call task "test" with filter="tests/lang" jobs="{$workers}"
+
+task "valgrind" means "Run a test target under Valgrind (target=ext/phar)":
+	requires $target
+	requires tools:
+		valgrind
+	if file "Makefile" not exists:
+		fail "No configured build. Run 'xdrun build' first."
+	step "Running {$target} under Valgrind"
+	run "NO_INTERACTION=1 REPORT_EXIT_STATUS=1 make test TESTS={$target} TEST_PHP_ARGS=-m"
+
+task "valgrind-repro" means "Run one script under Valgrind with the Zend allocator off (script=repro.php)":
+	requires $script
+	requires tools:
+		valgrind
+	if file "{$script}" not exists:
+		fail "No such script: {$script}"
+	if file "sapi/cli/php" not exists:
+		fail "No built CLI at sapi/cli/php. Run 'xdrun build' first."
+	step "Running {$script} under Valgrind"
+	run "USE_ZEND_ALLOC=0 valgrind --quiet --leak-check=no sapi/cli/php -n {$script}"
+
+task "lint" means "Syntax-check changed PHP files with this branch's CLI":
+	step "Checking PHP syntax"
+	run ".drun/scripts/lint-changed.sh"
+
+task "verify-commits" means "Check commit messages against AGENTS.md (range=HEAD)":
+	given $range defaults to "HEAD"
+	step "Checking commit messages in {$range}"
+	run ".drun/scripts/verify-commits.sh {$range}"
+
+task "verify-identity" means "Check that the built CLI carries the Phillarmonic identity line":
+	if file "sapi/cli/php" not exists:
+		fail "No built CLI at sapi/cli/php. Run 'xdrun build' first."
+	step "Checking php -v"
+	run "sapi/cli/php -v > /tmp/php-backports-version.txt && grep -F 'Phillarmonic Software' /tmp/php-backports-version.txt && grep -F 'not an official PHP release' /tmp/php-backports-version.txt"
+
+task "changelog" means "Promote CHANGELOG.md to a release version (version=7.4.34)":
+	requires $version as string matching semver_optional_v
+	# Only after the upstream advisory is public. See BACKPORTING.md, step 6.
+	confirm "Promote CHANGELOG.md to {$version}?" defaults to "no"
+	promote changelog "CHANGELOG.md" to version "{$version}"
+	success "CHANGELOG.md now has a {$version} section"
+
+task "clean" means "Remove compiled objects, keeping configure and Makefile":
+	if file "Makefile" not exists:
+		warning "Nothing to clean: the tree is not configured."
+	else:
+		step "Running make clean"
+		run "make clean"
+
+task "distclean" means "Remove the configured build, keeping the generated configure":
+	if file "Makefile" not exists:
+		warning "Nothing to distclean: the tree is not configured."
+	else:
+		step "Running make distclean"
+		run "make distclean"
+
+task "rebuild" means "Distclean, regenerate configure, and compile from scratch":
+	call task "distclean"
+	call task "buildconf"
+	call task "build"
+
+task "ci-quick" mode "ci" means "Fast loop: commit messages, syntax, language tests":
+	step "Commit messages"
+	call task "verify-commits"
+	step "PHP syntax"
+	call task "lint"
+	step "Language tests"
+	call task "test-lang"
+	success "Fast checks passed"
+
+task "ci" mode "ci" means "Build and run the full test suite":
+	step "Commit messages"
+	call task "verify-commits"
+	step "Configure and compile"
+	call task "build"
+	step "PHP syntax"
+	call task "lint"
+	step "Full test suite"
+	call task "test" with jobs="4"
+	success "CI passed"

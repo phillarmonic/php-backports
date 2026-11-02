@@ -1,0 +1,58 @@
+name: Backport bug
+description: A crash, build failure, or regression in a build from this fork
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This form is for bugs in a **Phillarmonic backport build**. For a bug in
+        an officially supported PHP version, use
+        [php/php-src](https://github.com/php/php-src/issues). For an unpublished
+        vulnerability, read
+        [SECURITY.md](https://github.com/phillarmonic/php-backports/blob/default/SECURITY.md)
+        first.
+  - type: textarea
+    attributes:
+      label: Description
+      description: "A small reproducer, and what you expected instead. A [3v4l.org](https://3v4l.org/) link is not useful here, because it does not run this fork."
+      value: |
+        The following code:
+
+        ```php
+        <?php
+        ```
+
+        Resulted in this output:
+        ```
+        ```
+
+        But I expected this output instead:
+        ```
+        ```
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: php -v and branch
+      description: |
+        The full output of `php -v` from the affected build, plus the branch it
+        came from (`backports/php-7.4`, `backports/php-8.1`, or a tag).
+      placeholder: |
+        PHP 7.4.34 (cli) (built: Oct 26 2026 14:02:11) (NTS)
+        Copyright © The PHP Group and Contributors
+        Built by Phillarmonic Software (https://www.phillarmonic.com/) - security backport, not an official PHP release
+        Zend Engine v3.4.0, Copyright (c) Zend Technologies
+
+        branch: backports/php-7.4
+      render: plain
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: Configure line
+      description: "The `./configure` invocation, or the `config.nice` it produced."
+      placeholder: "./configure --prefix=/opt/php-7.4 --enable-debug"
+  - type: input
+    attributes:
+      label: Operating system
+      description: "Distribution and version, or the container image."
+      placeholder: "Debian 12, arm64"

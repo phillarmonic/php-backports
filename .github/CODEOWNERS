@@ -1,0 +1,8 @@
+# No code owners are configured in this fork.
+#
+# Upstream php-src routes reviews to the PHP contributors who own each
+# subsystem. Those people do not maintain this fork, and GitHub would ask them
+# to review every pull request that touches their area here. The upstream list
+# is still available in php/php-src and in this repository's history.
+#
+# Backport review is handled by the maintainers described in README.md.

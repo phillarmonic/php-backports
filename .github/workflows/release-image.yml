@@ -1,0 +1,152 @@
+name: Release image
+
+# Publishes the runtime image for a release tag. The source release itself is
+# the tag and its notes; this job only makes the same tree available as a
+# container, so a pipeline can consume a backport without compiling PHP.
+#
+# The image goes to Docker Hub. The toolchain image stays on GHCR because it is
+# pulled by every job in build.yml, and Docker Hub rate-limits anonymous pulls
+# from the shared addresses GitHub runners use.
+
+on:
+  push:
+    tags:
+      - 'php-*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Full version to rebuild, for example 7.4.34'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: release-image-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE: phillarmonic/php-backports
+
+jobs:
+  plan:
+    name: Plan
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      series: ${{ steps.meta.outputs.series }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.version && format('php-{0}', inputs.version) || github.ref }}
+      - name: Read the version from the tree
+        id: meta
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^#define PHP_VERSION "\(.*\)"/\1/p' main/php_version.h)
+          if [[ -z "$version" ]]; then
+            echo "main/php_version.h has no PHP_VERSION" >&2
+            exit 1
+          fi
+          if [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" != "php-$version" ]]; then
+            echo "tag $GITHUB_REF_NAME does not match PHP_VERSION $version" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "series=${version%.*}" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: ${{ matrix.arch }}
+    needs: plan
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: amd64
+            target: linux
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+            target: linux-arm64
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: php-${{ needs.plan.outputs.version }}
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Log in to GHCR for the toolchain image
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Resolve the toolchain image
+        env:
+          BUILDER: ghcr.io/phillarmonic/php-backports-build:docker-${{ hashFiles('.drun/docker/**') }}
+        run: |
+          echo "PHP_BACKPORTS_IMAGE=$BUILDER" >> "$GITHUB_ENV"
+          if docker pull "$BUILDER"; then
+            exit 0
+          fi
+          echo "Nothing published for this Dockerfile yet; building it."
+          docker buildx build --load -t "$BUILDER" \
+            --cache-from type=gha,scope=image-${{ matrix.target }} \
+            --cache-to type=gha,mode=max,scope=image-${{ matrix.target }} \
+            -f .drun/docker/Dockerfile .drun/docker
+      - name: Build the runtime image
+        run: |
+          ./.drun/scripts/build-php-image.sh \
+            "${{ needs.plan.outputs.version }}-${{ matrix.arch }}" \
+            "$IMAGE"
+      - name: Push
+        run: docker push "$IMAGE:${{ needs.plan.outputs.version }}-${{ matrix.arch }}"
+
+  manifest:
+    name: Publish tags
+    needs:
+      - plan
+      - build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Publish one tag per architecture and a moving series tag
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+          SERIES: ${{ needs.plan.outputs.series }}
+        run: |
+          set -euo pipefail
+          for tag in "$VERSION" "$SERIES"; do
+            docker buildx imagetools create -t "$IMAGE:$tag" \
+              "$IMAGE:$VERSION-amd64" \
+              "$IMAGE:$VERSION-arm64"
+          done
+      - name: Report the published tags
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+          SERIES: ${{ needs.plan.outputs.series }}
+        run: |
+          {
+            echo "### Published"
+            echo
+            echo "| tag | architectures |"
+            echo "| --- | --- |"
+            for tag in "$VERSION" "$SERIES"; do
+              echo "| \`$IMAGE:$tag\` | amd64, arm64 |"
+            done
+            echo
+            echo "PHP $VERSION. Source release is the \`php-$VERSION\` tag."
+          } >> "$GITHUB_STEP_SUMMARY"

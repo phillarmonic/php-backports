@@ -1,0 +1,18 @@
+# Prefix: Backport, Fork, Docs, Release, or Revert.
+# Subject: imperative, under 72 characters, no trailing period.
+#
+# Blank line, then the body wrapped at 72. Say why the bug matters, what the
+# fix does, and what was adapted for this branch. Do not narrate the diff.
+#
+# Backport commits record the test that was run:
+#
+#   Test: ext/foo/tests/bug12345.phpt (new)
+#
+# and finish with one trailer per line:
+#
+#   CVE: CVE-YYYY-NNNNN
+#   Upstream: <full 40-character SHA>
+#   Advisory: <optional advisory URL>
+#
+# Fork and Docs commits need no trailers.
+# See AGENTS.md for the full convention.
