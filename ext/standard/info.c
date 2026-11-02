@@ -936,8 +936,10 @@ PHPAPI void php_print_info(int flag TSRMLS_DC)
 
 		if (!sapi_module.phpinfo_as_text) {
 			php_info_printf("<h1 class=\"p\">PHP Version %s</h1>\n", PHP_VERSION);
+			php_info_printf("<p class=\"p\">%s.<br />%s</p>\n", PHP_BACKPORT_NAME, PHP_BACKPORT_NOTICE);
 		} else {
 			php_info_print_table_row(2, "PHP Version", PHP_VERSION);
+			php_info_print_table_row(2, "Backport", PHP_BACKPORT_NAME);
 		}
 		php_info_print_box_end();
 		php_info_print_table_start();

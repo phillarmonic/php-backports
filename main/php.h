@@ -32,6 +32,17 @@
 #define PHP_DEFAULT_CHARSET "UTF-8"
 
 #include "php_version.h"
+
+/*
+ * Phillarmonic Software backport identity. The wording lives in one place
+ * because the CLI banner, phpinfo, and the tests that assert both read it, and
+ * a release is identified by all three.
+ */
+#define PHP_BACKPORT_NAME "Phillarmonic Software security backport"
+#define PHP_BACKPORT_NOTICE \
+	"This is not an official PHP release, and it is not affiliated with the " \
+	"PHP Group or the PHP Foundation."
+
 #include "zend.h"
 #include "zend_qsort.h"
 #include "php_compat.h"

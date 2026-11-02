@@ -697,7 +697,8 @@ static int do_cli(int argc, char **argv TSRMLS_DC) /* {{{ */
 				goto out;
 
 			case 'v': /* show php version & quit */
-				php_printf("PHP %s (%s) (built: %s %s) %s\nCopyright (c) 1997-2016 The PHP Group\n%s",
+				php_printf("PHP %s (%s) (built: %s %s) %s\nCopyright (c) 1997-2016 The PHP Group\n"
+					"%s of PHP %s.\n%s\n%s",
 					PHP_VERSION, cli_sapi_module.name, __DATE__, __TIME__,
 #if ZEND_DEBUG && defined(HAVE_GCOV)
 					"(DEBUG GCOV)",
@@ -708,6 +709,7 @@ static int do_cli(int argc, char **argv TSRMLS_DC) /* {{{ */
 #else
 					"",
 #endif
+					PHP_BACKPORT_NAME, PHP_VERSION, PHP_BACKPORT_NOTICE,
 					get_zend_version()
 				);
 				sapi_deactivate(TSRMLS_C);

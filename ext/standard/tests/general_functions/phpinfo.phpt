@@ -17,6 +17,7 @@ var_dump(phpinfo(INFO_LICENSE));
 --EXPECTF--
 phpinfo()
 PHP Version => %s
+Backport => %s
 
 System => %s
 Build Date => %s%a
