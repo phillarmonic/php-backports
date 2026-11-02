@@ -9,6 +9,21 @@ on:
   pull_request:
     branches:
       - 'backports/**'
+    # ready_for_review is not a default type. Without it a draft that is
+    # marked ready would never start a run, because the opened and
+    # synchronize runs were skipped.
+    #
+    # converted_to_draft is here for the concurrency rule: every one of these
+    # events starts a run in the pull request's group, and cancel-in-progress
+    # stops whatever is running. A push to a draft, or a pull request that
+    # goes back to draft, therefore cancels the run in flight and then skips
+    # every job.
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+      - converted_to_draft
   workflow_dispatch:
     inputs:
       series:
@@ -35,6 +50,10 @@ concurrency:
 jobs:
   plan:
     name: Plan
+    # A draft is work in progress. Building it on every push spends runner
+    # time on a tree that is expected to be broken; marking it ready starts
+    # the run.
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-24.04
     outputs:
       linux-matrix: ${{ steps.plan.outputs.linux-matrix }}
@@ -56,7 +75,8 @@ jobs:
   linux:
     name: Linux ${{ matrix.platform }} PHP ${{ matrix.series }}
     needs: plan
-    if: needs.plan.outputs.linux-count != '0'
+    if: (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+      && needs.plan.outputs.linux-count != '0'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     env:
@@ -104,7 +124,8 @@ jobs:
   windows:
     name: Windows ${{ matrix.arch }} ${{ matrix.crt }} PHP ${{ matrix.series }}
     needs: plan
-    if: needs.plan.outputs.windows-count != '0'
+    if: (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+      && needs.plan.outputs.windows-count != '0'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     defaults:
