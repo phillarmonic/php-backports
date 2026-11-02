@@ -1635,6 +1635,9 @@ int php_request_startup(TSRMLS_D)
 	zend_try {
 		PG(in_error_log) = 0;
 		PG(during_request_startup) = 1;
+		/* The upload progress decode clears this on both paths, but a bailout
+		 * can leave it set for the life of the worker. */
+		PG(unserialize_no_user_code) = 0;
 
 		php_output_activate(TSRMLS_C);
 

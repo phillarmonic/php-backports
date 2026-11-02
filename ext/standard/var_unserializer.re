@@ -364,6 +364,15 @@ static inline int process_nested_data(UNSERIALIZE_PARAMETER, HashTable *ht, long
 			return 0;
 		}
 
+		/* While user code may not run, the decoder owns these members. Data
+		 * that carries one cannot be told apart from that bookkeeping. */
+		if (PG(unserialize_no_user_code) && objprops && Z_TYPE_P(key) == IS_STRING
+		 && (strcmp(Z_STRVAL_P(key), MAGIC_MEMBER) == 0
+		  || strcmp(Z_STRVAL_P(key), MAGIC_MEMBER_SERIALIZED) == 0)) {
+            var_push_dtor_no_addref(var_hash, &key);
+			return 0;
+		}
+
 		ALLOC_INIT_ZVAL(data);
 
 		if (!php_var_unserialize(&data, p, max, var_hash TSRMLS_CC)) {
@@ -795,6 +804,37 @@ object ":" uiv ":" ["]	{
 
 	class_name = estrndup(class_name, len);
 
+	if (PG(unserialize_no_user_code)) {
+		/* Resolving a class, autoloading it, or handing the payload to its
+		 * unserialize() is user code, and none of it may run here. Every object
+		 * stays incomplete; a C: payload is copied verbatim so that the
+		 * serializer can write it back unchanged. */
+		if (custom_object) {
+			long datalen;
+			zval *raw;
+
+			*p = YYCURSOR;
+			datalen = parse_iv2((*p) + 2, p);
+			(*p) += 2;
+			if (datalen < 0 || (max - (*p)) <= datalen) {
+				zend_error(E_WARNING, "Insufficient data for unserializing - %ld required, %ld present", datalen, (long)(max - (*p)));
+				efree(class_name);
+				return 0;
+			}
+			object_init_ex(*rval, PHP_IC_ENTRY);
+			php_store_class_name(*rval, class_name, len2);
+			MAKE_STD_ZVAL(raw);
+			ZVAL_STRINGL(raw, (char *)(*p), datalen, 1);
+			zend_hash_update(Z_OBJPROP_PP(rval), MAGIC_MEMBER_SERIALIZED, sizeof(MAGIC_MEMBER_SERIALIZED), &raw, sizeof(zval *), NULL);
+			(*p) += datalen;
+			efree(class_name);
+			return finish_nested_data(UNSERIALIZE_PASSTHRU);
+		}
+		incomplete_class = 1;
+		ce = PHP_IC_ENTRY;
+		goto have_class;
+	}
+
 	do {
 		/* Try to find class directly */
 		BG(serialize_lock)++;
@@ -870,6 +910,7 @@ object ":" uiv ":" ["]	{
 		break;
 	} while (1);
 
+have_class:
 	*p = YYCURSOR;
 
 	if (custom_object) {

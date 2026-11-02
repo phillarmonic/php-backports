@@ -768,6 +768,31 @@ static void php_var_serialize_intern(smart_str *buf, zval *struc, HashTable *var
 					ce = Z_OBJCE_P(struc);
 				}
 
+				/* A C: payload the decoder was not allowed to hand to the class:
+				 * write the bytes back exactly as they were read. */
+				if (PG(unserialize_no_user_code) && ce == PHP_IC_ENTRY) {
+					HashTable *props = Z_OBJPROP_P(struc);
+					zval **raw;
+
+					if (props && zend_hash_find(props, MAGIC_MEMBER_SERIALIZED, sizeof(MAGIC_MEMBER_SERIALIZED), (void **)&raw) == SUCCESS
+					 && Z_TYPE_PP(raw) == IS_STRING) {
+						PHP_CLASS_ATTRIBUTES;
+
+						PHP_SET_CLASS_ATTRIBUTES(struc);
+						smart_str_appendl(buf, "C:", 2);
+						smart_str_append_long(buf, (int)name_len);
+						smart_str_appendl(buf, ":\"", 2);
+						smart_str_appendl(buf, class_name, name_len);
+						smart_str_appendl(buf, "\":", 2);
+						smart_str_append_long(buf, (int)Z_STRLEN_PP(raw));
+						smart_str_appendl(buf, ":{", 2);
+						smart_str_appendl(buf, Z_STRVAL_PP(raw), Z_STRLEN_PP(raw));
+						smart_str_appendc(buf, '}');
+						PHP_CLEANUP_CLASS_ATTRIBUTES();
+						return;
+					}
+				}
+
 				if (ce && ce->serialize != NULL) {
 					/* has custom handler */
 					unsigned char *serialized_data = NULL;

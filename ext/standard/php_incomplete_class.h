@@ -52,6 +52,9 @@
 
 #define INCOMPLETE_CLASS "__PHP_Incomplete_Class"
 #define MAGIC_MEMBER "__PHP_Incomplete_Class_Name"
+/* The raw payload of a C: value, kept when the decoder is not allowed to run
+ * the class's unserialize(). The serializer writes it back unchanged. */
+#define MAGIC_MEMBER_SERIALIZED "__PHP_Incomplete_Class_Serialized"
 
 #ifdef __cplusplus
 extern "C" {
