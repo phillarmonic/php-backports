@@ -9,6 +9,7 @@
 # toolset   MSVC toolset passed to the SDK runner with -s, or -
 # suites    test paths handed to run-tests.php, space separated
 # marker    runner marker required to include this row, or -
+# configure configure flags for the container build, or - for the default
 #
 # A row whose marker is not enabled stays out of the matrix. That keeps a
 # self-hosted job from queueing for hours when its machine is off. Enable a
@@ -20,34 +21,34 @@
 # downloads.php.net/~windows/php-sdk/deps/archives/vc11. Windows 5.6 needs a
 # driver built on the pre-2.0 SDK, which is a research task rather than a row.
 
-series	target	runner	platform	crt	arch	toolset	suites	marker
-5.6	linux	["ubuntu-24.04"]	linux/amd64	-	-	-	tests/lang Zend/tests	-
-7.0	linux	["ubuntu-24.04"]	linux/amd64	-	-	-	tests/lang Zend/tests	-
-7.1	linux	["ubuntu-24.04"]	linux/amd64	-	-	-	tests/lang Zend/tests	-
-7.2	linux	["ubuntu-24.04"]	linux/amd64	-	-	-	tests/lang Zend/tests	-
-7.3	linux	["ubuntu-24.04"]	linux/amd64	-	-	-	tests/lang Zend/tests	-
-7.4	linux	["ubuntu-24.04"]	linux/amd64	-	-	-	tests/lang Zend/tests	-
-8.0	linux	["ubuntu-24.04"]	linux/amd64	-	-	-	tests/lang Zend/tests	-
-8.1	linux	["ubuntu-24.04"]	linux/amd64	-	-	-	tests/lang Zend/tests	-
-5.6	linux-arm64	["ubuntu-24.04-arm"]	linux/arm64	-	-	-	tests/lang Zend/tests	-
-7.0	linux-arm64	["ubuntu-24.04-arm"]	linux/arm64	-	-	-	tests/lang Zend/tests	-
-7.1	linux-arm64	["ubuntu-24.04-arm"]	linux/arm64	-	-	-	tests/lang Zend/tests	-
-7.2	linux-arm64	["ubuntu-24.04-arm"]	linux/arm64	-	-	-	tests/lang Zend/tests	-
-7.3	linux-arm64	["ubuntu-24.04-arm"]	linux/arm64	-	-	-	tests/lang Zend/tests	-
-7.4	linux-arm64	["ubuntu-24.04-arm"]	linux/arm64	-	-	-	tests/lang Zend/tests	-
-8.0	linux-arm64	["ubuntu-24.04-arm"]	linux/arm64	-	-	-	tests/lang Zend/tests	-
-8.1	linux-arm64	["ubuntu-24.04-arm"]	linux/arm64	-	-	-	tests/lang Zend/tests	-
-7.4	windows-x64	["windows-2022"]	-	vs16	x64	14.29	tests/lang Zend/tests	-
-7.4	windows-x86	["windows-2022"]	-	vs16	x86	14.29	tests/lang Zend/tests	-
-8.0	windows-x64	["windows-2022"]	-	vs16	x64	14.29	tests/lang Zend/tests	-
-8.0	windows-x86	["windows-2022"]	-	vs16	x86	14.29	tests/lang Zend/tests	-
-8.1	windows-x64	["windows-2022"]	-	vs16	x64	14.29	tests/lang Zend/tests	-
-8.1	windows-x86	["windows-2022"]	-	vs16	x86	14.29	tests/lang Zend/tests	-
-7.0	windows-x64	["self-hosted","windows","php-backports","vc14"]	-	vc14	x64	14.0	tests/lang Zend/tests	win-legacy
-7.0	windows-x86	["self-hosted","windows","php-backports","vc14"]	-	vc14	x86	14.0	tests/lang Zend/tests	win-legacy
-7.1	windows-x64	["self-hosted","windows","php-backports","vc14"]	-	vc14	x64	14.0	tests/lang Zend/tests	win-legacy
-7.1	windows-x86	["self-hosted","windows","php-backports","vc14"]	-	vc14	x86	14.0	tests/lang Zend/tests	win-legacy
-7.2	windows-x64	["self-hosted","windows","php-backports","vc15"]	-	vc15	x64	14.16	tests/lang Zend/tests	win-legacy
-7.2	windows-x86	["self-hosted","windows","php-backports","vc15"]	-	vc15	x86	14.16	tests/lang Zend/tests	win-legacy
-7.3	windows-x64	["self-hosted","windows","php-backports","vc15"]	-	vc15	x64	14.16	tests/lang Zend/tests	win-legacy
-7.3	windows-x86	["self-hosted","windows","php-backports","vc15"]	-	vc15	x86	14.16	tests/lang Zend/tests	win-legacy
+series	target	runner	platform	crt	arch	toolset	suites	marker	-
+5.6	linux	["ubuntu-24.04"]	linux/amd64	-	-	-	tests/lang Zend/tests ext/session/tests sapi/cli/tests	-	--disable-all --enable-cli --enable-cgi --enable-session --enable-hash --enable-json --enable-ctype --enable-tokenizer --enable-filter
+7.0	linux	["ubuntu-24.04"]	linux/amd64	-	-	-	tests/lang Zend/tests	-	-
+7.1	linux	["ubuntu-24.04"]	linux/amd64	-	-	-	tests/lang Zend/tests	-	-
+7.2	linux	["ubuntu-24.04"]	linux/amd64	-	-	-	tests/lang Zend/tests	-	-
+7.3	linux	["ubuntu-24.04"]	linux/amd64	-	-	-	tests/lang Zend/tests	-	-
+7.4	linux	["ubuntu-24.04"]	linux/amd64	-	-	-	tests/lang Zend/tests	-	-
+8.0	linux	["ubuntu-24.04"]	linux/amd64	-	-	-	tests/lang Zend/tests	-	-
+8.1	linux	["ubuntu-24.04"]	linux/amd64	-	-	-	tests/lang Zend/tests	-	-
+5.6	linux-arm64	["ubuntu-24.04-arm"]	linux/arm64	-	-	-	tests/lang Zend/tests ext/session/tests sapi/cli/tests	-	--disable-all --enable-cli --enable-cgi --enable-session --enable-hash --enable-json --enable-ctype --enable-tokenizer --enable-filter
+7.0	linux-arm64	["ubuntu-24.04-arm"]	linux/arm64	-	-	-	tests/lang Zend/tests	-	-
+7.1	linux-arm64	["ubuntu-24.04-arm"]	linux/arm64	-	-	-	tests/lang Zend/tests	-	-
+7.2	linux-arm64	["ubuntu-24.04-arm"]	linux/arm64	-	-	-	tests/lang Zend/tests	-	-
+7.3	linux-arm64	["ubuntu-24.04-arm"]	linux/arm64	-	-	-	tests/lang Zend/tests	-	-
+7.4	linux-arm64	["ubuntu-24.04-arm"]	linux/arm64	-	-	-	tests/lang Zend/tests	-	-
+8.0	linux-arm64	["ubuntu-24.04-arm"]	linux/arm64	-	-	-	tests/lang Zend/tests	-	-
+8.1	linux-arm64	["ubuntu-24.04-arm"]	linux/arm64	-	-	-	tests/lang Zend/tests	-	-
+7.4	windows-x64	["windows-2022"]	-	vs16	x64	14.29	tests/lang Zend/tests	-	-
+7.4	windows-x86	["windows-2022"]	-	vs16	x86	14.29	tests/lang Zend/tests	-	-
+8.0	windows-x64	["windows-2022"]	-	vs16	x64	14.29	tests/lang Zend/tests	-	-
+8.0	windows-x86	["windows-2022"]	-	vs16	x86	14.29	tests/lang Zend/tests	-	-
+8.1	windows-x64	["windows-2022"]	-	vs16	x64	14.29	tests/lang Zend/tests	-	-
+8.1	windows-x86	["windows-2022"]	-	vs16	x86	14.29	tests/lang Zend/tests	-	-
+7.0	windows-x64	["self-hosted","windows","php-backports","vc14"]	-	vc14	x64	14.0	tests/lang Zend/tests	win-legacy	-
+7.0	windows-x86	["self-hosted","windows","php-backports","vc14"]	-	vc14	x86	14.0	tests/lang Zend/tests	win-legacy	-
+7.1	windows-x64	["self-hosted","windows","php-backports","vc14"]	-	vc14	x64	14.0	tests/lang Zend/tests	win-legacy	-
+7.1	windows-x86	["self-hosted","windows","php-backports","vc14"]	-	vc14	x86	14.0	tests/lang Zend/tests	win-legacy	-
+7.2	windows-x64	["self-hosted","windows","php-backports","vc15"]	-	vc15	x64	14.16	tests/lang Zend/tests	win-legacy	-
+7.2	windows-x86	["self-hosted","windows","php-backports","vc15"]	-	vc15	x86	14.16	tests/lang Zend/tests	win-legacy	-
+7.3	windows-x64	["self-hosted","windows","php-backports","vc15"]	-	vc15	x64	14.16	tests/lang Zend/tests	win-legacy	-
+7.3	windows-x86	["self-hosted","windows","php-backports","vc15"]	-	vc15	x86	14.16	tests/lang Zend/tests	win-legacy	-
